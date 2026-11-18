@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Аккаунт экосистемы</title>
+  <link rel="stylesheet" href="/assets/auth.css">
+  <script src="/assets/auth.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <section class="panel">
+      <div class="mark" aria-hidden="true">✦</div>
+      <p class="eyebrow">ЕДИНЫЙ АККАУНТ</p>
+      <h1 id="heading">Войти в аккаунт</h1>
+      <p class="muted" id="subheading">Один аккаунт для самостоятельных сервисов экосистемы.</p>
+      <div class="tabs" role="tablist" aria-label="Действие">
+        <button class="tab active" type="button" data-mode="login">Войти</button>
+        <button class="tab" type="button" data-mode="register">Регистрация</button>
+      </div>
+      <form id="auth-form" novalidate>
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="email" required maxlength="254" placeholder="you@example.com">
+        <label for="password">Пароль</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required minlength="10" maxlength="128" placeholder="Не менее 10 символов">
+        <button class="primary" type="submit" id="submit">Войти</button>
+      </form>
+      <form id="verify-form" class="hidden" novalidate>
+        <label for="verify-email">Email</label>
+        <input id="verify-email" type="email" autocomplete="email" required>
+        <label for="code">Код из письма</label>
+        <input id="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required>
+        <button class="primary" type="submit">Подтвердить email</button>
+        <button class="quiet" type="button" id="resend">Отправить код повторно</button>
+      </form>
+      <div class="message" id="message" role="status" aria-live="polite"></div>
+      <button class="quiet forgot" id="forgot" type="button">Забыли пароль?</button>
+      <p class="footnote">Пароль хранится в виде криптографического хеша. Код подтверждения действует 10 минут.</p>
+    </section>
+  </main>
+</body>
+</html>
