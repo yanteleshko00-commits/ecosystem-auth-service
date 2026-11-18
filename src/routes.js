@@ -15,7 +15,7 @@ import { packages, resolveUsageBucket } from './policy.js';
 export const router = express.Router();
 const codeTtlMinutes = 10;
 const sessionTtlSeconds = config.SESSION_TTL_DAYS * 86400;
-const registerSchema = z.object({ email: z.string().email().max(254), password: z.string().min(10).max(128) });
+const registerSchema = z.object({ name: z.string().trim().min(1).max(60), email: z.string().email().max(254), password: z.string().min(10).max(128) });
 const emailSchema = z.object({ email: z.string().email().max(254) });
 const codeSchema = z.object({ email: z.string().email().max(254), code: z.string().regex(/^\d{6}$/) });
 const passwordSchema = z.string().min(10).max(128);
@@ -84,8 +84,8 @@ router.post('/v1/auth/register', requireSameOrigin, async (req, res) => {
   }
   const passwordHash = await hashPassword(parsed.data.password);
   const inserted = await pool.query(
-    'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id',
-    [email, passwordHash]
+    'INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id',
+    [parsed.data.name, email, passwordHash]
   );
   const code = await createEmailToken(inserted.rows[0].id, 'verify_email');
   try {
@@ -148,9 +148,9 @@ router.post('/v1/auth/logout', requireSameOrigin, async (req, res) => {
 });
 
 router.get('/v1/me', requireUser, (req, res) => {
-  const { id, email, free_requests_used, paid_credits } = req.user;
+  const { id, name, email, free_requests_used, paid_credits } = req.user;
   return res.json({
-    user: { id, email },
+    user: { id, name, email },
     usage: { freeRequestsUsed: free_requests_used, freeRequestsRemaining: Math.max(0, 3 - free_requests_used), paidCredits },
     packages
   });
@@ -232,12 +232,12 @@ router.post('/oauth/token', express.urlencoded({ extended: false }), async (req,
     const authCode = found.rows[0];
     if (!authCode || authCode.client_id !== client.clientId || authCode.redirect_uri !== body.redirect_uri || !timingSafeEqualText(authCode.code_challenge, challenge)) return null;
     await db.query('UPDATE oauth_codes SET used_at = NOW() WHERE id = $1', [authCode.id]);
-    const account = await db.query('SELECT id, email, free_requests_used, paid_credits, email_verified_at FROM users WHERE id = $1', [authCode.user_id]);
+    const account = await db.query('SELECT id, name, email, free_requests_used, paid_credits, email_verified_at FROM users WHERE id = $1', [authCode.user_id]);
     return account.rows[0] ?? null;
   });
   if (!result) return res.status(400).json({ error: 'invalid_or_expired_authorization_code' });
   return res.json({
-    user: { id: result.id, email: result.email, emailVerified: Boolean(result.email_verified_at) },
+    user: { id: result.id, name: result.name, email: result.email, emailVerified: Boolean(result.email_verified_at) },
     usage: { freeRequestsUsed: result.free_requests_used, freeRequestsRemaining: Math.max(0, 3 - result.free_requests_used), paidCredits: result.paid_credits }
   });
 });
@@ -246,13 +246,13 @@ router.get('/v1/internal/users/:userId/summary', requireService, async (req, res
   const parsedId = z.string().uuid().safeParse(req.params.userId);
   if (!parsedId.success) return res.status(400).json({ error: 'invalid_user_id' });
   const result = await pool.query(
-    'SELECT id, email, free_requests_used, paid_credits FROM users WHERE id = $1',
+    'SELECT id, name, email, free_requests_used, paid_credits FROM users WHERE id = $1',
     [parsedId.data]
   );
   if (!result.rowCount) return res.status(404).json({ error: 'user_not_found' });
   const user = result.rows[0];
   return res.json({
-    user: { id: user.id, email: user.email },
+    user: { id: user.id, name: user.name, email: user.email },
     usage: {
       freeRequestsUsed: user.free_requests_used,
       freeRequestsRemaining: Math.max(0, 3 - user.free_requests_used),
