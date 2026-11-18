@@ -16,6 +16,8 @@ function setMode(nextMode) {
   $('#heading').textContent = mode === 'login' ? 'Войти в аккаунт' : 'Создать аккаунт';
   $('#subheading').textContent = mode === 'login' ? 'Один аккаунт для самостоятельных сервисов экосистемы.' : 'Подтвердите email, чтобы пользоваться всеми сервисами.';
   $('#password').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+  $('#name-field').classList.toggle('hidden', mode !== 'register');
+  $('#name').required = mode === 'register';
   $('#submit').textContent = mode === 'login' ? 'Войти' : 'Зарегистрироваться';
   document.querySelectorAll('.tab').forEach(button => button.classList.toggle('active', button.dataset.mode === mode));
   $('#verify-form').classList.add('hidden');
@@ -31,6 +33,7 @@ $('#auth-form').addEventListener('submit', async event => {
   submit.disabled = true;
   showMessage('');
   const payload = { email: $('#email').value.trim(), password: $('#password').value };
+  if (mode === 'register') payload.name = $('#name').value.trim();
   try {
     const response = await fetch(`/v1/auth/${mode === 'login' ? 'login' : 'register'}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
@@ -100,7 +103,7 @@ function mapError(code) {
     invalid_or_expired_code: 'Код неверный или срок его действия истёк.',
     email_delivery_unavailable: 'Не настроена отправка писем. Обратитесь к администратору.',
     account_already_exists: 'Аккаунт уже существует. Войдите или восстановите пароль.',
-    invalid_registration_data: 'Проверьте email и пароль. Пароль должен содержать минимум 10 символов.'
+    invalid_registration_data: 'Проверьте имя, email и пароль. Имя обязательно, пароль должен содержать минимум 10 символов.'
   };
   return messages[code] || 'Не удалось выполнить запрос. Проверьте данные и попробуйте ещё раз.';
 }
