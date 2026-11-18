@@ -156,6 +156,16 @@ router.get('/v1/me', requireUser, (req, res) => {
   });
 });
 
+router.patch('/v1/me', requireSameOrigin, requireUser, async (req, res) => {
+  const parsed = z.object({ name: z.string().trim().min(1).max(60) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_profile_data', message: 'Имя должно содержать от 1 до 60 символов.' });
+  const result = await pool.query(
+    'UPDATE users SET name = $1, updated_at = NOW() WHERE id = $2 RETURNING id, name, email',
+    [parsed.data.name, req.user.id]
+  );
+  return res.json({ ok: true, user: result.rows[0] });
+});
+
 router.post('/v1/auth/forgot-password', requireSameOrigin, async (req, res) => {
   const parsed = emailSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_email' });
