@@ -3,15 +3,23 @@ import { config } from './config.js';
 
 let transporter;
 function getTransporter() {
-  if (!config.SMTP_HOST || !config.SMTP_USER || !config.SMTP_PASSWORD) {
-    throw new Error('Email delivery is not configured. Set SMTP_HOST, SMTP_USER and SMTP_PASSWORD.');
+  const missing = [];
+  if (!config.SMTP_HOST) missing.push('SMTP_HOST');
+  if (!config.SMTP_USER) missing.push('SMTP_USER');
+  if (!config.SMTP_PASSWORD) missing.push('SMTP_PASSWORD');
+  if (!config.SMTP_FROM) missing.push('SMTP_FROM');
+  if (missing.length) {
+    throw new Error(`Email delivery is not configured. Missing: ${missing.join(', ')}`);
   }
   if (!transporter) {
     transporter = nodemailer.createTransport({
       host: config.SMTP_HOST,
       port: config.SMTP_PORT,
       secure: config.SMTP_SECURE === 'true',
-      auth: { user: config.SMTP_USER, pass: config.SMTP_PASSWORD }
+      auth: { user: config.SMTP_USER, pass: config.SMTP_PASSWORD },
+      connectionTimeout: 12000,
+      greetingTimeout: 12000,
+      socketTimeout: 15000
     });
   }
   return transporter;
