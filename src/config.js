@@ -23,7 +23,7 @@ const EnvSchema = z.object({
   SMTP_SECURE: z.string().default('false'),
   SMTP_USER: z.string().default(''),
   SMTP_PASSWORD: z.string().default(''),
-  SMTP_FROM: z.string().default('Ecosystem Account <no-reply@example.com>'),
+  SMTP_FROM: z.string().default(''),
   OAUTH_CLIENTS_JSON: z.string().default('[]'),
   PAYMENT_WEBHOOK_SECRET: z.string().default(''),
   TRUST_PROXY: z.string().default('false')
