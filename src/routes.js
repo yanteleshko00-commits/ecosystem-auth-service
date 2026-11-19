@@ -16,6 +16,7 @@ export const router = express.Router();
 const codeTtlMinutes = 10;
 const sessionTtlSeconds = config.SESSION_TTL_DAYS * 86400;
 const registerSchema = z.object({ name: z.string().trim().min(1).max(60), email: z.string().email().max(254), password: z.string().min(10).max(128) });
+const loginSchema = z.object({ email: z.string().email().max(254), password: z.string().min(10).max(128) });
 const emailSchema = z.object({ email: z.string().email().max(254) });
 const codeSchema = z.object({ email: z.string().email().max(254), code: z.string().regex(/^\d{6}$/) });
 const passwordSchema = z.string().min(10).max(128);
@@ -127,7 +128,7 @@ router.post('/v1/auth/verify-email', requireSameOrigin, async (req, res) => {
 });
 
 router.post('/v1/auth/login', requireSameOrigin, async (req, res) => {
-  const parsed = registerSchema.safeParse(req.body);
+  const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_login_data' });
   const email = normalizeEmail(parsed.data.email);
   const result = await pool.query('SELECT id, password_hash, email_verified_at FROM users WHERE email = $1', [email]);
