@@ -66,7 +66,8 @@ async function makeSession(userId, res) {
 
 router.get('/health', async (_req, res) => {
   await pool.query('SELECT 1');
-  res.json({ ok: true, service: 'ecosystem-auth', database: 'connected' });
+  const smtpConfigured = Boolean(config.SMTP_HOST && config.SMTP_USER && config.SMTP_PASSWORD && config.SMTP_FROM);
+  res.json({ ok: true, service: 'ecosystem-auth', database: 'connected', smtpConfigured });
 });
 
 function requireSameOrigin(req, res, next) {
@@ -92,8 +93,13 @@ router.post('/v1/auth/register', requireSameOrigin, async (req, res) => {
   try {
     await sendCodeEmail({ to: email, code, purpose: 'verify_email' });
   } catch (error) {
-    console.error('Verification email delivery failed:', error.message);
-    return res.status(503).json({ error: 'email_delivery_unavailable', message: 'Аккаунт создан, но письмо отправить не удалось. Настройте почтовый сервер и запросите код повторно.' });
+    console.error('Registration email delivery failed:', {
+      code: error.code, responseCode: error.responseCode, command: error.command, message: error.message
+    });
+    return res.status(503).json({
+      error: 'email_delivery_unavailable',
+      message: 'Аккаунт создан, но письмо не отправлено. Проверьте настройки SMTP и подтверждённый адрес отправителя в Brevo.'
+    });
   }
   return res.status(201).json({ ok: true, message: 'Проверьте почту и введите код подтверждения.' });
 });
@@ -107,8 +113,23 @@ router.post('/v1/auth/resend-verification', requireSameOrigin, async (req, res) 
     return res.json({ ok: true, message: 'Если аккаунт требует подтверждения, письмо будет отправлено.' });
   }
   const code = await createEmailToken(user.rows[0].id, 'verify_email');
-  await sendCodeEmail({ to: email, code, purpose: 'verify_email' });
-  return res.json({ ok: true, message: 'Новый код отправлен.' });
+  try {
+    const info = await sendCodeEmail({ to: email, code, purpose: 'verify_email' });
+    console.info('Verification email accepted by SMTP relay:', {
+      messageId: info.messageId,
+      acceptedCount: info.accepted?.length ?? 0,
+      rejectedCount: info.rejected?.length ?? 0
+    });
+  } catch (error) {
+    console.error('Verification email resend failed:', {
+      code: error.code, responseCode: error.responseCode, command: error.command, message: error.message
+    });
+    return res.status(503).json({
+      error: 'email_delivery_unavailable',
+      message: 'Сервер не смог отправить письмо. Проверьте настройки Brevo SMTP и подтверждённый адрес отправителя.'
+    });
+  }
+  return res.json({ ok: true, message: 'Код принят почтовым сервером. Проверьте Входящие и Спам.' });
 });
 
 router.post('/v1/auth/verify-email', requireSameOrigin, async (req, res) => {
