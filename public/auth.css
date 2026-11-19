@@ -11,3 +11,9 @@
 .code-input{text-align:center;letter-spacing:.42em;font-size:23px;font-weight:700;padding:15px 10px}
 .modal-message{min-height:20px;margin-top:10px;font-size:13px;color:#b33b3b}.modal-message.ok{color:#16824d}
 @media(prefers-color-scheme:dark){.verify-modal{background:rgba(0,0,0,.62)}.verify-modal-card{background:rgba(22,29,42,.98);border-color:rgba(255,255,255,.1)}.modal-close{background:#27354a;color:#eaf0fa}.modal-description{color:#9caac0}.modal-icon{background:#162d50;color:#7eafff}}
+
+body.modal-open{overflow:hidden}
+.verify-email-button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:transform .14s ease,background-color .14s ease,opacity .14s ease}
+.verify-email-button:active:not(:disabled){transform:scale(.97)}
+.verify-email-button:disabled{opacity:.62;cursor:wait;transform:none}
+.modal-message.loading{color:#3978cb}
