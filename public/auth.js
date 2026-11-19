@@ -78,6 +78,31 @@ $('#resend').addEventListener('click', async () => {
   } catch (error) { showMessage(error.message); }
 });
 
+$('#verify-email-action').addEventListener('click', async () => {
+  const email = $('#email').value.trim();
+  if (!email) return showMessage('Сначала укажите email.');
+  const button = $('#verify-email-action');
+  button.disabled = true;
+  try {
+    const response = await fetch('/v1/auth/resend-verification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(mapError(data.error));
+    $('#verify-email').value = email;
+    $('#auth-form').classList.add('hidden');
+    $('#verify-form').classList.remove('hidden');
+    $('#forgot').classList.add('hidden');
+    showMessage(data.message || 'Если аккаунт не подтверждён, код отправлен на почту.', true);
+  } catch (error) {
+    showMessage(error.message || 'Не удалось отправить код.');
+  } finally {
+    button.disabled = false;
+  }
+});
+
 $('#forgot').addEventListener('click', async () => {
   const email = $('#email').value.trim();
   if (!email) return showMessage('Сначала укажите email в поле выше.');
