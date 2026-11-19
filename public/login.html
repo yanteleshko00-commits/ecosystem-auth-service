@@ -25,7 +25,10 @@
           <input id="name" name="name" type="text" autocomplete="given-name" maxlength="60" placeholder="Как к вам обращаться?">
         </div>
         <label for="email">Email</label>
-        <input id="email" name="email" type="email" autocomplete="email" required maxlength="254" placeholder="you@example.com">
+        <div class="email-row">
+          <input id="email" name="email" type="email" autocomplete="email" required maxlength="254" placeholder="you@example.com">
+          <button class="verify-email-button" id="verify-email-action" type="button">Подтвердить email</button>
+        </div>
         <label for="password">Пароль</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required minlength="10" maxlength="128" placeholder="Не менее 10 символов">
         <button class="primary" type="submit" id="submit">Войти</button>
