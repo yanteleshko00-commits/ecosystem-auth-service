@@ -6,6 +6,21 @@ const nextPath = (() => {
 })();
 let mode = 'login';
 
+function showVerifyMessage(text, ok = false) {
+  const node = $('#verify-message');
+  node.textContent = text;
+  node.classList.toggle('ok', ok);
+}
+function openVerifyModal(email) {
+  $('#verify-email').value = email;
+  $('#code').value = '';
+  $('#verify-modal').classList.remove('hidden');
+  showVerifyMessage('');
+  setTimeout(() => $('#code').focus(), 50);
+}
+function closeVerifyModal() { $('#verify-modal').classList.add('hidden'); }
+$('#close-verify').addEventListener('click', closeVerifyModal);
+$('#verify-modal').addEventListener('click', event => { if (event.target === $('#verify-modal')) closeVerifyModal(); });
 function showMessage(text, ok = false) {
   const node = $('#message');
   node.textContent = text;
@@ -58,15 +73,18 @@ $('#auth-form').addEventListener('submit', async event => {
 
 $('#verify-form').addEventListener('submit', async event => {
   event.preventDefault();
+  const submit = $('#verify-submit');
   const payload = { email: $('#verify-email').value.trim(), code: $('#code').value.trim() };
+  if (!/^\\d{6}$/.test(payload.code)) return showVerifyMessage('Введите ровно 6 цифр.');
+  submit.disabled = true;
   try {
     const response = await fetch('/v1/auth/verify-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json();
     if (!response.ok) throw new Error(mapError(data.error));
-    setMode('login');
-    $('#email').value = payload.email;
+    closeVerifyModal(); setMode('login'); $('#email').value = payload.email;
     showMessage('Email подтверждён. Теперь войдите.', true);
-  } catch (error) { showMessage(error.message); }
+  } catch (error) { showVerifyMessage(error.message); }
+  finally { submit.disabled = false; }
 });
 
 $('#resend').addEventListener('click', async () => {
@@ -74,8 +92,8 @@ $('#resend').addEventListener('click', async () => {
     const response = await fetch('/v1/auth/resend-verification', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: $('#verify-email').value.trim() }) });
     const data = await response.json();
     if (!response.ok) throw new Error(mapError(data.error));
-    showMessage(data.message, true);
-  } catch (error) { showMessage(error.message); }
+    showVerifyMessage(data.message || 'Новый код отправлен.', true);
+  } catch (error) { showVerifyMessage(error.message); }
 });
 
 $('#verify-email-action').addEventListener('click', async () => {
@@ -91,10 +109,7 @@ $('#verify-email-action').addEventListener('click', async () => {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(mapError(data.error));
-    $('#verify-email').value = email;
-    $('#auth-form').classList.add('hidden');
-    $('#verify-form').classList.remove('hidden');
-    $('#forgot').classList.add('hidden');
+    openVerifyModal(email);
     showMessage(data.message || 'Если аккаунт не подтверждён, код отправлен на почту.', true);
   } catch (error) {
     showMessage(error.message || 'Не удалось отправить код.');
