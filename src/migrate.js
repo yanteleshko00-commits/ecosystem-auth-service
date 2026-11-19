@@ -2,13 +2,20 @@ import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { pool, transaction } from './db.js';
 
+const migrations = [
+  '001_init.sql',
+  '002_add_user_name.sql'
+];
+
 try {
-  const migrationPath = fileURLToPath(new URL('../migrations/001_init.sql', import.meta.url));
-  const sql = await fs.readFile(migrationPath, 'utf8');
-  await transaction(async client => {
-    await client.query(sql);
-  });
-  console.log('Database migration completed.');
+  for (const migration of migrations) {
+    const migrationPath = fileURLToPath(new URL(`../migrations/${migration}`, import.meta.url));
+    const sql = await fs.readFile(migrationPath, 'utf8');
+    await transaction(async client => {
+      await client.query(sql);
+    });
+    console.log(`Database migration completed: ${migration}`);
+  }
 } catch (error) {
   console.error('Database migration failed:', error);
   process.exitCode = 1;
