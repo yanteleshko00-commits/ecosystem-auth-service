@@ -221,7 +221,7 @@ function mapError(code) {
     email_not_verified: 'Сначала подтвердите email.',
     invalid_or_expired_code: 'Код неверный или срок его действия истёк.',
     invalid_verification_data: 'Введите корректный шестизначный код.',
-    email_delivery_unavailable: 'Не настроена отправка писем. Обратитесь к администратору.',
+    email_delivery_unavailable: 'Письмо не отправлено. Проверьте настройки Brevo SMTP и подтверждённый адрес отправителя.',
     account_already_exists: 'Аккаунт уже существует. Войдите или восстановите пароль.',
     invalid_registration_data: 'Проверьте имя, email и пароль. Имя обязательно, пароль должен содержать минимум 10 символов.',
     invalid_email: 'Проверьте правильность email.',
