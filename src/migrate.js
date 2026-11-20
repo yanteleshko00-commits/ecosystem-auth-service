@@ -4,7 +4,8 @@ import { pool, transaction } from './db.js';
 
 const migrations = [
   '001_init.sql',
-  '002_add_user_name.sql'
+  '002_add_user_name.sql',
+  '003_device_account_limit.sql'
 ];
 
 try {
