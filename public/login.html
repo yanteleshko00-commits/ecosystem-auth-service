@@ -4,17 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>Аккаунт экосистемы</title>
-  <link rel="stylesheet" href="/assets/auth.css?v=20261119-4">
-  <script src="/assets/auth.js?v=20261119-4" defer></script>
+  <meta name="theme-color" content="#f3f5f9">
+  <title>NEXORA ID · Единый аккаунт</title>
+  <link rel="stylesheet" href="/assets/auth.css?v=20261120-1">
+  <script src="/assets/auth.js?v=20261120-1" defer></script>
 </head>
 <body>
   <main class="shell">
     <section class="panel">
       <div class="mark" aria-hidden="true">✦</div>
-      <p class="eyebrow">ЕДИНЫЙ АККАУНТ</p>
-      <h1 id="heading">Войти в аккаунт</h1>
-      <p class="muted" id="subheading">Один аккаунт для самостоятельных сервисов экосистемы.</p>
+      <p class="eyebrow">ЕДИНЫЙ АККАУНТ ЭКОСИСТЕМЫ</p>
+      <h1 id="heading">Войти в NEXORA ID</h1>
+      <p class="muted" id="subheading">Один аккаунт для всех сервисов. Войдите по коду из письма.</p>
       <div class="tabs" role="tablist" aria-label="Действие">
         <button class="tab active" type="button" data-mode="login">Войти</button>
         <button class="tab" type="button" data-mode="register">Регистрация</button>
@@ -24,36 +25,44 @@
           <label for="name">Имя</label>
           <input id="name" name="name" type="text" autocomplete="given-name" maxlength="60" placeholder="Как к вам обращаться?">
         </div>
-        <label for="email">Email</label>
+        <label for="email">Электронная почта</label>
         <div class="email-row">
           <input id="email" name="email" type="email" autocomplete="email" required maxlength="254" placeholder="you@example.com">
-          <button class="verify-email-button" id="verify-email-action" type="button">Подтвердить email</button>
+          <button class="verify-email-button hidden" id="verify-email-action" type="button">Подтвердить email</button>
         </div>
-        <label for="password">Пароль</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required minlength="10" maxlength="128" placeholder="Не менее 10 символов">
-        <button class="primary" type="submit" id="submit">Войти</button>
+        <div id="password-field" class="hidden">
+          <label for="password">Пароль</label>
+          <input id="password" name="password" type="password" autocomplete="new-password" minlength="6" maxlength="128" placeholder="Не менее 6 символов">
+        </div>
+        <div id="login-code-field" class="hidden">
+          <label for="login-code">Шестизначный код из письма</label>
+          <input id="login-code" class="code-input" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000">
+          <button class="quiet resend-code hidden" id="login-code-resend" type="button">Отправить код повторно</button>
+        </div>
+        <button class="primary" type="submit" id="submit">Получить код</button>
       </form>
-      <div class="verify-modal hidden" id="verify-modal" role="dialog" aria-modal="true" aria-labelledby="verify-title">
-        <div class="verify-modal-card">
-          <button class="modal-close" type="button" id="close-verify" aria-label="Закрыть">×</button>
-          <div class="modal-icon">✉</div>
-          <h2 id="verify-title">Подтверждение email</h2>
-          <p class="modal-description">Если аккаунт зарегистрирован и email ещё не подтверждён, мы отправим код. Проверьте также папку «Спам».</p>
-          <form id="verify-form" novalidate>
-            <label for="verify-email">Email</label>
-            <input id="verify-email" type="email" autocomplete="email" required readonly>
-            <label for="code">Код из письма</label>
-            <input id="code" class="code-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required>
-            <button class="primary" type="submit" id="verify-submit">Подтвердить</button>
-            <button class="quiet" type="button" id="resend">Отправить код повторно</button>
-          </form>
-          <div class="modal-message" id="verify-message" role="status" aria-live="polite"></div>
-        </div>
-      </div>
+      <button class="quiet password-toggle" id="password-login-toggle" type="button">Войти по паролю</button>
       <div class="message" id="message" role="status" aria-live="polite"></div>
-      <button class="quiet forgot" id="forgot" type="button">Забыли пароль?</button>
-      <p class="footnote">Пароль хранится в виде криптографического хеша. Код подтверждения действует 10 минут.</p>
+      <button class="quiet forgot hidden" id="forgot" type="button">Забыли пароль?</button>
+      <p class="footnote">Код для входа действует 15 минут и используется один раз. Никому не сообщайте его. После входа можно переходить между подключёнными сервисами без повторной регистрации.</p>
     </section>
   </main>
+  <div class="verify-modal hidden" id="verify-modal" role="dialog" aria-modal="true" aria-labelledby="verify-title">
+    <div class="verify-modal-card">
+      <button class="modal-close" type="button" id="close-verify" aria-label="Закрыть">×</button>
+      <div class="modal-icon">✉</div>
+      <h2 id="verify-title">Подтверждение email</h2>
+      <p class="modal-description">Мы отправили код подтверждения на указанную почту. Проверьте также папку «Спам».</p>
+      <form id="verify-form" novalidate>
+        <label for="verify-email">Email</label>
+        <input id="verify-email" type="email" autocomplete="email" required readonly>
+        <label for="code">Код из письма</label>
+        <input id="code" class="code-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required>
+        <button class="primary" type="submit" id="verify-submit">Подтвердить и войти</button>
+        <button class="quiet" type="button" id="resend">Отправить код повторно</button>
+      </form>
+      <div class="modal-message" id="verify-message" role="status" aria-live="polite"></div>
+    </div>
+  </div>
 </body>
 </html>
