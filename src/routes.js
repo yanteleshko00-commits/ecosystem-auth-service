@@ -67,7 +67,14 @@ async function makeSession(userId, res) {
 router.get('/health', async (_req, res) => {
   await pool.query('SELECT 1');
   const smtpConfigured = Boolean(config.SMTP_HOST && config.SMTP_USER && config.SMTP_PASSWORD && config.SMTP_FROM);
-  res.json({ ok: true, service: 'ecosystem-auth', database: 'connected', smtpConfigured });
+  res.json({
+    ok: true,
+    service: 'ecosystem-auth',
+    database: 'connected',
+    smtpConfigured,
+    oauthClients: config.clients.map(client => client.clientId),
+    emailCodeTtlMinutes: codeTtlMinutes
+  });
 });
 
 function requireSameOrigin(req, res, next) {
