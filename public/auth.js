@@ -5,7 +5,10 @@ const nextPath = (() => {
   return value.startsWith('/') && !value.startsWith('//') && !value.includes('\\') ? value : '/';
 })();
 let mode = 'login';
+let loginCodeRequested = false;
+let passwordLoginMode = false;
 let verifyRequestBusy = false;
+let loginResendTimer = null;
 
 function showMessage(text, ok = false) {
   const node = $('#message');
@@ -18,26 +21,13 @@ function showVerifyMessage(text, kind = 'error') {
   node.classList.toggle('ok', kind === 'ok');
   node.classList.toggle('loading', kind === 'loading');
 }
-function setBusy(button, busy, busyText = 'Отправляем…') {
-  if (!button) return;
-  if (busy) {
-    if (!button.dataset.idleText) button.dataset.idleText = button.textContent;
-    button.disabled = true;
-    button.textContent = busyText;
-    button.setAttribute('aria-busy', 'true');
-  } else {
-    button.disabled = false;
-    button.textContent = button.dataset.idleText || button.textContent;
-    button.removeAttribute('aria-busy');
-  }
-}
 async function requestJson(url, options = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
+    const response = await fetch(url, { ...options, signal: controller.signal, credentials: 'same-origin' });
     let data = {};
-    try { data = await response.json(); } catch { /* empty or non-JSON response */ }
+    try { data = await response.json(); } catch {}
     if (!response.ok) throw new Error(data.message || mapError(data.error));
     return data;
   } catch (error) {
@@ -69,51 +59,145 @@ document.addEventListener('keydown', event => {
 
 function setMode(nextMode) {
   mode = nextMode;
+  loginCodeRequested = false;
+  passwordLoginMode = false;
   closeVerifyModal();
-  $('#heading').textContent = mode === 'login' ? 'Войти в аккаунт' : 'Создать аккаунт';
+  if (loginResendTimer) clearInterval(loginResendTimer);
+  $('#heading').textContent = mode === 'login' ? 'Войти в NEXORA ID' : 'Создать NEXORA ID';
   $('#subheading').textContent = mode === 'login'
-    ? 'Один аккаунт для самостоятельных сервисов экосистемы.'
-    : 'Подтвердите email, чтобы пользоваться всеми сервисами.';
-  $('#password').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+    ? 'Один аккаунт для всех сервисов. Войдите по коду из письма.'
+    : 'Создайте один аккаунт и используйте его во всей экосистеме.';
   $('#name-field').classList.toggle('hidden', mode !== 'register');
   $('#name').required = mode === 'register';
-  $('#submit').textContent = mode === 'login' ? 'Войти' : 'Зарегистрироваться';
+  $('#password-field').classList.toggle('hidden', mode === 'login');
+  $('#password').required = mode === 'register';
+  $('#login-code-field').classList.add('hidden');
+  $('#login-code-resend').classList.add('hidden');
+  $('#verify-email-action').classList.toggle('hidden', mode !== 'register');
+  $('#submit').textContent = mode === 'login' ? 'Получить код' : 'Создать аккаунт';
+  $('#password-login-toggle').classList.toggle('hidden', mode !== 'login');
+  $('#forgot').classList.add('hidden');
   document.querySelectorAll('.tab').forEach(button =>
     button.classList.toggle('active', button.dataset.mode === mode)
   );
-  $('#auth-form').classList.remove('hidden');
-  $('#forgot').classList.toggle('hidden', mode !== 'login');
   showMessage('');
 }
 document.querySelectorAll('.tab').forEach(button =>
   button.addEventListener('click', () => setMode(button.dataset.mode))
 );
 
+$('#password-login-toggle').addEventListener('click', () => {
+  passwordLoginMode = !passwordLoginMode;
+  loginCodeRequested = false;
+  $('#password-field').classList.toggle('hidden', !passwordLoginMode);
+  $('#login-code-field').classList.add('hidden');
+  $('#submit').textContent = passwordLoginMode ? 'Войти по паролю' : 'Получить код';
+  $('#password-login-toggle').textContent = passwordLoginMode ? 'Войти по коду из письма' : 'Войти по паролю';
+  $('#forgot').classList.toggle('hidden', !passwordLoginMode);
+  showMessage('');
+});
+
+async function sendLoginCode(email, button) {
+  if (verifyRequestBusy) return;
+  verifyRequestBusy = true;
+  const idleText = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Отправляем…';
+  try {
+    const data = await requestJson('/v1/auth/send-login-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    loginCodeRequested = true;
+    $('#login-code-field').classList.remove('hidden');
+    $('#login-code-resend').classList.remove('hidden');
+    $('#submit').textContent = 'Подтвердить и войти';
+    showMessage(data.message || 'Проверьте почту и введите шестизначный код.', true);
+    $('#login-code').focus();
+    let seconds = 30;
+    button.textContent = seconds + ' сек.';
+    loginResendTimer = setInterval(() => {
+      seconds -= 1;
+      if (seconds <= 0) {
+        clearInterval(loginResendTimer);
+        button.disabled = false;
+        button.textContent = idleText;
+      } else {
+        button.textContent = seconds + ' сек.';
+      }
+    }, 1000);
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = idleText;
+    showMessage(error.message || 'Не удалось отправить код.');
+  } finally {
+    verifyRequestBusy = false;
+  }
+}
+$('#login-code-resend').addEventListener('click', async () => {
+  const email = $('#email').value.trim();
+  if (!email || verifyRequestBusy) return;
+  await sendLoginCode(email, $('#login-code-resend'));
+});
+
 $('#auth-form').addEventListener('submit', async event => {
   event.preventDefault();
   const submit = $('#submit');
   if (submit.disabled) return;
-  const payload = { email: $('#email').value.trim(), password: $('#password').value };
-  if (mode === 'register') payload.name = $('#name').value.trim();
-  setBusy(submit, true, mode === 'login' ? 'Входим…' : 'Создаём аккаунт…');
+  const email = $('#email').value.trim();
+  if (!email || !$('#email').checkValidity()) {
+    showMessage('Введите корректный адрес электронной почты.');
+    $('#email').focus();
+    return;
+  }
+
+  if (mode === 'login' && !passwordLoginMode && !loginCodeRequested) {
+    await sendLoginCode(email, submit);
+    return;
+  }
+
+  const originalText = submit.textContent;
+  submit.disabled = true;
+  submit.textContent = mode === 'login' ? 'Проверяем…' : 'Создаём аккаунт…';
   showMessage('');
   try {
-    const endpoint = mode === 'login' ? '/v1/auth/login' : '/v1/auth/register';
-    const data = await requestJson(endpoint, {
+    if (mode === 'login') {
+      if (passwordLoginMode) {
+        await requestJson('/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password: $('#password').value })
+        });
+      } else {
+        const code = $('#login-code').value.trim();
+        if (!/^\d{6}$/.test(code)) throw new Error('Введите шестизначный код из письма.');
+        await requestJson('/v1/auth/verify-login-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, code })
+        });
+      }
+      location.assign(nextPath);
+      return;
+    }
+
+    const payload = {
+      name: $('#name').value.trim(),
+      email,
+      password: $('#password').value
+    };
+    await requestJson('/v1/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    if (mode === 'login') {
-      location.assign(nextPath);
-      return;
-    }
-    $('#forgot').classList.add('hidden');
-    openVerifyModal(payload.email, data.message || 'Код отправлен. Проверьте почту.');
+    openVerifyModal(email, 'Код подтверждения отправлен. Проверьте Входящие и Спам.');
   } catch (error) {
     showMessage(error.message || 'Не удалось выполнить запрос.');
   } finally {
-    setBusy(submit, false);
+    submit.disabled = false;
+    submit.textContent = originalText;
   }
 });
 
@@ -126,68 +210,60 @@ $('#verify-form').addEventListener('submit', async event => {
     showVerifyMessage('Введите ровно 6 цифр.');
     return;
   }
-  setBusy(submit, true, 'Проверяем…');
+  const originalText = submit.textContent;
+  submit.disabled = true;
+  submit.textContent = 'Проверяем…';
   try {
     await requestJson('/v1/auth/verify-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    closeVerifyModal();
-    setMode('login');
-    $('#email').value = payload.email;
-    showMessage('Email подтверждён. Теперь войдите.', true);
+    showVerifyMessage('Email подтверждён. Выполняем вход…', 'ok');
+    location.assign(nextPath);
   } catch (error) {
     showVerifyMessage(error.message || 'Не удалось проверить код.');
   } finally {
-    setBusy(submit, false);
+    submit.disabled = false;
+    submit.textContent = originalText;
   }
 });
 
-async function sendVerificationCode(email, button = null) {
+async function sendVerificationCode(email, button) {
   if (verifyRequestBusy) return;
   verifyRequestBusy = true;
-  setBusy(button, true, 'Отправляем…');
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Отправляем…';
   try {
     const data = await requestJson('/v1/auth/resend-verification', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email })
     });
-    showVerifyMessage(
-      data.message || 'Если аккаунт требует подтверждения, код отправлен на почту.',
-      'ok'
-    );
+    showVerifyMessage(data.message || 'Если аккаунт требует подтверждения, код отправлен.', 'ok');
   } catch (error) {
     showVerifyMessage(error.message || 'Не удалось отправить код.');
   } finally {
     verifyRequestBusy = false;
-    setBusy(button, false);
+    button.disabled = false;
+    button.textContent = originalText;
   }
 }
-
 $('#verify-email-action').addEventListener('click', async () => {
   const emailInput = $('#email');
   const email = emailInput.value.trim();
-  if (!email) {
-    showMessage('Сначала укажите email.');
+  if (!email || !emailInput.checkValidity()) {
+    showMessage('Введите корректный адрес электронной почты.');
     emailInput.focus();
     return;
   }
-  if (!emailInput.checkValidity()) {
-    showMessage('Проверьте правильность email.');
-    emailInput.focus();
-    return;
-  }
-  if (verifyRequestBusy) return;
-  openVerifyModal(email, 'Отправляем код на почту…');
+  openVerifyModal(email, 'Отправляем код подтверждения…');
   await sendVerificationCode(email, $('#verify-email-action'));
 });
-
 $('#resend').addEventListener('click', async () => {
   const email = $('#verify-email').value.trim();
-  if (!email || verifyRequestBusy) return;
-  await sendVerificationCode(email, $('#resend'));
+  if (email) await sendVerificationCode(email, $('#resend'));
 });
 
 $('#forgot').addEventListener('click', async () => {
@@ -202,14 +278,15 @@ $('#forgot').addEventListener('click', async () => {
     showMessage(data.message || 'Если аккаунт существует, на него отправлен код восстановления.');
     const code = prompt('Введите шестизначный код из письма:');
     if (!code) return;
-    const newPassword = prompt('Введите новый пароль (не менее 10 символов):');
+    const newPassword = prompt('Введите новый пароль (не менее 6 символов):');
     if (!newPassword) return;
     await requestJson('/v1/auth/reset-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, code: code.trim(), newPassword })
     });
-    showMessage('Пароль изменён. Теперь войдите.', true);
+    showMessage('Пароль изменён. Теперь можно войти по email-коду.', true);
+    setMode('login');
   } catch (error) {
     showMessage(error.message || 'Не удалось восстановить пароль.');
   }
@@ -217,15 +294,17 @@ $('#forgot').addEventListener('click', async () => {
 
 function mapError(code) {
   const messages = {
-    invalid_credentials: 'Неверный email или пароль.',
-    email_not_verified: 'Сначала подтвердите email.',
+    invalid_credentials: 'Неверная почта или пароль.',
+    email_not_verified: 'Сначала подтвердите электронную почту.',
     invalid_or_expired_code: 'Код неверный или срок его действия истёк.',
     invalid_verification_data: 'Введите корректный шестизначный код.',
-    email_delivery_unavailable: 'Письмо не отправлено. Проверьте настройки Brevo SMTP и подтверждённый адрес отправителя.',
-    account_already_exists: 'Аккаунт уже существует. Войдите или восстановите пароль.',
-    invalid_registration_data: 'Проверьте имя, email и пароль. Имя обязательно, пароль должен содержать минимум 10 символов.',
+    email_delivery_unavailable: 'Письмо не отправлено. Проверьте почтовые настройки и адрес отправителя.',
+    account_already_exists: 'Аккаунт уже существует. Войдите или подтвердите email.',
+    invalid_registration_data: 'Проверьте имя и email. Пароль должен содержать минимум 6 символов.',
     invalid_email: 'Проверьте правильность email.',
     origin_not_allowed: 'Запрос с этого адреса не разрешён.'
   };
   return messages[code] || 'Не удалось выполнить запрос. Проверьте данные и попробуйте ещё раз.';
 }
+
+setMode(params.get('mode') === 'register' ? 'register' : 'login');
