@@ -13,7 +13,7 @@ import { requirePaymentWebhook, requireService } from './service-auth.js';
 import { packages, resolveUsageBucket } from './policy.js';
 
 export const router = express.Router();
-const codeTtlMinutes = 10;
+const codeTtlMinutes = 15;
 const sessionTtlSeconds = config.SESSION_TTL_DAYS * 86400;
 const registerSchema = z.object({ name: z.string().trim().min(1).max(60), email: z.string().email().max(254), password: z.string().min(6).max(128) });
 const loginSchema = z.object({ email: z.string().email().max(254), password: z.string().min(6).max(128) });
@@ -137,6 +137,58 @@ router.post('/v1/auth/register', requireSameOrigin, async (req, res) => {
   return res.status(201).json({ ok: true, message: 'Проверьте почту и введите код подтверждения.' });
 });
 
+router.post('/v1/auth/send-login-code', requireSameOrigin, async (req, res) => {
+  const parsed = emailSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_email' });
+
+  const email = normalizeEmail(parsed.data.email);
+  const result = await pool.query(
+    'SELECT id FROM users WHERE email = $1 AND email_verified_at IS NOT NULL',
+    [email]
+  );
+
+  // Do not reveal whether an email address has an account.
+  if (result.rowCount) {
+    const code = await createEmailToken(result.rows[0].id, 'login');
+    try {
+      await sendCodeEmail({ to: email, code, purpose: 'login' });
+    } catch (error) {
+      console.error('Login code email delivery failed:', {
+        code: error.code, responseCode: error.responseCode, command: error.command, message: error.message
+      });
+      return res.status(503).json({
+        error: 'email_delivery_unavailable',
+        message: 'Не удалось отправить письмо. Попробуйте позже.'
+      });
+    }
+  }
+
+  return res.json({
+    ok: true,
+    message: 'Если аккаунт с этим адресом существует и подтверждён, код отправлен на почту. Он действует 15 минут.'
+  });
+});
+
+router.post('/v1/auth/verify-login-code', requireSameOrigin, async (req, res) => {
+  const parsed = codeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_verification_data' });
+
+  const email = normalizeEmail(parsed.data.email);
+  const user = await pool.query(
+    'SELECT id FROM users WHERE email = $1 AND email_verified_at IS NOT NULL',
+    [email]
+  );
+  if (!user.rowCount) return res.status(400).json({ error: 'invalid_or_expired_code' });
+
+  const verified = await transaction(async db =>
+    consumeEmailToken(user.rows[0].id, parsed.data.code, 'login', db)
+  );
+  if (!verified) return res.status(400).json({ error: 'invalid_or_expired_code' });
+
+  await makeSession(user.rows[0].id, res);
+  return res.json({ ok: true, message: 'Вход в NEXORA ID выполнен.' });
+});
+
 router.post('/v1/auth/resend-verification', requireSameOrigin, async (req, res) => {
   const parsed = emailSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_email' });
@@ -178,7 +230,8 @@ router.post('/v1/auth/verify-email', requireSameOrigin, async (req, res) => {
     return true;
   });
   if (!verified) return res.status(400).json({ error: 'invalid_or_expired_code' });
-  return res.json({ ok: true, message: 'Email подтверждён. Теперь можно войти.' });
+  await makeSession(user.rows[0].id, res);
+  return res.json({ ok: true, message: 'Email подтверждён. Вход в NEXORA ID выполнен.' });
 });
 
 router.post('/v1/auth/login', requireSameOrigin, async (req, res) => {
@@ -427,6 +480,27 @@ router.post('/v1/internal/payments/grant', requirePaymentWebhook, async (req, re
   });
   if (granted.notFound) return res.status(404).json({ error: 'user_not_found' });
   return res.json({ ok: true, ...granted });
+});
+
+router.get('/logout', async (req, res) => {
+  const token = req.cookies?.[config.SESSION_COOKIE_NAME];
+  if (token) await pool.query('DELETE FROM sessions WHERE token_hash = $1', [sha256(token)]);
+  clearSessionCookie(res);
+
+  const clientId = typeof req.query.client_id === 'string' ? req.query.client_id : '';
+  const returnTo = typeof req.query.return_to === 'string' ? req.query.return_to : '';
+  const client = config.clients.find(item => item.clientId === clientId);
+  let target = '/login';
+  if (client && returnTo) {
+    try {
+      const requested = new URL(returnTo);
+      const allowedOrigins = new Set(client.redirectUris.map(uri => new URL(uri).origin));
+      if (requested.protocol === 'https:' && allowedOrigins.has(requested.origin)) {
+        target = requested.origin + '/';
+      }
+    } catch {}
+  }
+  return res.redirect(302, target);
 });
 
 router.get('/login', (_req, res) => res.sendFile(new URL('../public/login.html', import.meta.url).pathname));
