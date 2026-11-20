@@ -328,7 +328,8 @@ router.get('/oauth/authorize', async (req, res) => {
   const user = await findSessionUser(req);
   if (!user) {
     const next = encodeURIComponent(req.originalUrl);
-    return res.redirect(`/login?next=${next}`);
+    const mode = req.query.mode === 'register' ? '&mode=register' : '';
+    return res.redirect(`/login?next=${next}${mode}`);
   }
   const code = randomToken(32);
   await pool.query(
