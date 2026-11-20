@@ -8,10 +8,10 @@ function escapeHtml(value) {
 
 function getMissingEmailConfig() {
   const missing = [];
-  if (!config.UNISENDER_API_KEY) missing.push('UNISENDER_API_KEY');
-  if (!config.UNISENDER_FROM_EMAIL) missing.push('UNISENDER_FROM_EMAIL');
+  if (!config.SYNAPSEA_API_KEY) missing.push('SYNAPSEA_API_KEY');
+  if (!config.SYNAPSEA_FROM_EMAIL) missing.push('SYNAPSEA_FROM_EMAIL');
   if (missing.length) {
-    throw new Error('Unisender Go email delivery is not configured. Missing: ' + missing.join(', '));
+    throw new Error('Synapsea Mail email delivery is not configured. Missing: ' + missing.join(', '));
   }
 }
 
@@ -56,34 +56,31 @@ export async function sendCodeEmail({ to, code, purpose }) {
 
   let response;
   try {
-    response = await fetch(config.UNISENDER_API_URL, {
+    response = await fetch(config.SYNAPSEA_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'X-API-KEY': config.UNISENDER_API_KEY
+        'Authorization': 'Bearer ' + config.SYNAPSEA_API_KEY
       },
       body: JSON.stringify({
-        message: {
-          recipients: [{ email: to }],
-          body: { html, plaintext: text },
-          subject,
-          global_language: 'ru',
-          from_email: config.UNISENDER_FROM_EMAIL,
-          from_name: config.UNISENDER_FROM_NAME || 'NEXORA ID',
-          tags: ['nexora-id', 'authentication']
-        }
+        from: config.SYNAPSEA_FROM_EMAIL,
+        to,
+        subject,
+        html,
+        text,
+        tags: ['nexora-id', 'authentication']
       }),
       signal: controller.signal
     });
   } catch (error) {
     if (error?.name === 'AbortError') {
-      const timeoutError = new Error('Unisender Go API request timed out.');
-      timeoutError.code = 'UNISENDER_TIMEOUT';
+      const timeoutError = new Error('Synapsea Mail API request timed out.');
+      timeoutError.code = 'SYNAPSEA_TIMEOUT';
       throw timeoutError;
     }
-    const networkError = new Error('Could not connect to Unisender Go API.');
-    networkError.code = 'UNISENDER_NETWORK_ERROR';
+    const networkError = new Error('Could not connect to Synapsea Mail API.');
+    networkError.code = 'SYNAPSEA_NETWORK_ERROR';
     throw networkError;
   } finally {
     clearTimeout(timeout);
@@ -93,37 +90,23 @@ export async function sendCodeEmail({ to, code, purpose }) {
   try {
     result = await response.json();
   } catch {
-    const parseError = new Error('Unisender Go API returned an invalid response.');
+    const parseError = new Error('Synapsea Mail API returned an invalid response.');
     parseError.httpStatus = response.status;
     throw parseError;
   }
 
-  if (!response.ok || result?.status !== 'success') {
-    const apiError = new Error(
-      'Unisender Go API rejected the request' +
-      ' (HTTP ' + response.status +
-      (Number.isInteger(result?.code) ? ', API code ' + result.code : '') + ').'
-    );
+  if (!response.ok || !result?.id) {
+    const providerMessage = typeof result?.error === 'string' ? result.error.slice(0, 160) : 'Request rejected';
+    const apiError = new Error('Synapsea Mail API rejected the request (HTTP ' + response.status + '): ' + providerMessage);
     apiError.httpStatus = response.status;
-    if (typeof result?.code === 'string' || Number.isInteger(result?.code)) {
-      apiError.apiCode = String(result.code).slice(0, 80);
-    }
+    if (typeof result?.code === 'string') apiError.apiCode = result.code.slice(0, 80);
     throw apiError;
   }
 
-  const failedRecipients = result.failed_emails && typeof result.failed_emails === 'object'
-    ? Object.entries(result.failed_emails)
-    : [];
-  const rejected = failedRecipients.find(([email]) => email.toLowerCase() === to.toLowerCase());
-  if (rejected) {
-    const recipientError = new Error('Unisender Go rejected the recipient (' + String(rejected[1]).slice(0, 80) + ').');
-    recipientError.code = 'UNISENDER_RECIPIENT_REJECTED';
-    throw recipientError;
-  }
-
   return {
-    messageId: result.job_id,
-    accepted: result.emails ?? [to],
+    messageId: result.id,
+    status: result.status || 'queued',
+    accepted: [to],
     rejected: []
   };
 }
