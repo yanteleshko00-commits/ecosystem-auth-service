@@ -68,6 +68,7 @@ export async function sendCodeEmail({ to, code, purpose }) {
           recipients: [{ email: to }],
           body: { html, plaintext: text },
           subject,
+          global_language: 'ru',
           from_email: config.UNISENDER_FROM_EMAIL,
           from_name: config.UNISENDER_FROM_NAME || 'NEXORA ID',
           track_links: 0,
