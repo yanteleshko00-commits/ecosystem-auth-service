@@ -73,9 +73,11 @@ function setMode(nextMode) {
   $('#password').required = mode === 'register';
   $('#login-code-field').classList.add('hidden');
   $('#login-code-resend').classList.add('hidden');
-  $('#verify-email-action').classList.toggle('hidden', mode !== 'register');
+  $('#verify-email-action').classList.remove('hidden');
+  $('#verify-email-action').textContent = mode === 'register' ? 'Подтвердить email' : 'Не пришло письмо?';
   $('#submit').textContent = mode === 'login' ? 'Получить код' : 'Создать аккаунт';
   $('#password-login-toggle').classList.toggle('hidden', mode !== 'login');
+  $('#password-login-toggle').textContent = 'Войти по паролю';
   $('#forgot').classList.add('hidden');
   document.querySelectorAll('.tab').forEach(button =>
     button.classList.toggle('active', button.dataset.mode === mode)
@@ -89,6 +91,7 @@ document.querySelectorAll('.tab').forEach(button =>
 $('#password-login-toggle').addEventListener('click', () => {
   passwordLoginMode = !passwordLoginMode;
   loginCodeRequested = false;
+  $('#password').required = passwordLoginMode;
   $('#password-field').classList.toggle('hidden', !passwordLoginMode);
   $('#login-code-field').classList.add('hidden');
   $('#submit').textContent = passwordLoginMode ? 'Войти по паролю' : 'Получить код';
@@ -297,6 +300,7 @@ $('#forgot').addEventListener('click', async () => {
 function mapError(code) {
   const messages = {
     invalid_credentials: 'Неверная почта или пароль.',
+    invalid_login_data: 'Проверьте адрес почты и пароль.',
     email_not_verified: 'Сначала подтвердите электронную почту.',
     invalid_or_expired_code: 'Код неверный или срок его действия истёк.',
     invalid_verification_data: 'Введите корректный шестизначный код.',
