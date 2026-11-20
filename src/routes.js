@@ -80,16 +80,49 @@ router.post('/v1/auth/register', requireSameOrigin, async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_registration_data' });
   const email = normalizeEmail(parsed.data.email);
-  const existing = await pool.query('SELECT id, email_verified_at FROM users WHERE email = $1', [email]);
+  const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
   if (existing.rowCount) {
     return res.status(409).json({ error: 'account_already_exists', message: 'Аккаунт с таким email уже зарегистрирован. Войдите или запросите восстановление пароля.' });
   }
+
+  // A long-lived, HttpOnly device cookie groups registrations from this browser.
+  const deviceToken = req.cookies?.ecosystem_device || randomToken(32);
+  if (!req.cookies?.ecosystem_device) {
+    res.cookie('ecosystem_device', deviceToken, {
+      httpOnly: true,
+      secure: config.cookieSecure,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 10 * 365 * 24 * 60 * 60 * 1000
+    });
+  }
+  const deviceHash = sha256(deviceToken);
   const passwordHash = await hashPassword(parsed.data.password);
-  const inserted = await pool.query(
-    'INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id',
-    [parsed.data.name, email, passwordHash]
-  );
-  const code = await createEmailToken(inserted.rows[0].id, 'verify_email');
+  const created = await transaction(async db => {
+    // Serialize registrations for this device so simultaneous requests cannot exceed the cap.
+    await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deviceHash]);
+    const count = await db.query(
+      'SELECT COUNT(*)::int AS total FROM device_accounts WHERE device_hash = $1',
+      [deviceHash]
+    );
+    if (count.rows[0].total >= 3) return { limitReached: true };
+    const inserted = await db.query(
+      'INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id',
+      [parsed.data.name, email, passwordHash]
+    );
+    await db.query(
+      'INSERT INTO device_accounts (device_hash, user_id) VALUES ($1, $2)',
+      [deviceHash, inserted.rows[0].id]
+    );
+    return { userId: inserted.rows[0].id };
+  });
+  if (created.limitReached) {
+    return res.status(429).json({
+      error: 'device_account_limit',
+      message: 'На одном устройстве можно создать не более 3 аккаунтов NEXORA ID. Войдите в существующий аккаунт.'
+    });
+  }
+  const code = await createEmailToken(created.userId, 'verify_email');
   try {
     await sendCodeEmail({ to: email, code, purpose: 'verify_email' });
   } catch (error) {
