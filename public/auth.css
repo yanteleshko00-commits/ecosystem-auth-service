@@ -17,3 +17,9 @@ body.modal-open{overflow:hidden}
 .verify-email-button:active:not(:disabled){transform:scale(.97)}
 .verify-email-button:disabled{opacity:.62;cursor:wait;transform:none}
 .modal-message.loading{color:#3978cb}
+
+#password-field,#login-code-field{display:grid;gap:9px}
+.password-toggle{display:block;margin:7px auto 0;font-size:13px}
+.resend-code{display:block;width:fit-content;margin:2px auto 0;font-size:12px}
+.resend-code:disabled{opacity:.55;cursor:wait}
+#login-code{width:100%}
