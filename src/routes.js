@@ -138,7 +138,7 @@ router.post('/v1/auth/register', requireSameOrigin, async (req, res) => {
     });
     return res.status(503).json({
       error: 'email_delivery_unavailable',
-      message: 'Аккаунт создан, но письмо не отправлено. Проверьте API-ключ Unisender Go и подтверждённый адрес отправителя.'
+      message: 'Аккаунт создан, но письмо не отправлено. Проверьте настройки Synapsea Mail и подтверждённый адрес отправителя.'
     });
   }
   return res.status(201).json({ ok: true, message: 'Проверьте почту и введите код подтверждения.' });
@@ -218,7 +218,7 @@ router.post('/v1/auth/resend-verification', requireSameOrigin, async (req, res) 
     });
     return res.status(503).json({
       error: 'email_delivery_unavailable',
-      message: 'Сервер не смог отправить письмо. Проверьте API-ключ Unisender Go и подтверждённый адрес отправителя.'
+      message: 'Сервер не смог отправить письмо. Проверьте настройки Synapsea Mail и подтверждённый адрес отправителя.'
     });
   }
   return res.json({ ok: true, message: 'Код принят почтовым сервером. Проверьте Входящие и Спам.' });
