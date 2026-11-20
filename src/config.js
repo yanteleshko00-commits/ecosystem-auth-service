@@ -24,6 +24,10 @@ const EnvSchema = z.object({
   SMTP_USER: z.string().default(''),
   SMTP_PASSWORD: z.string().default(''),
   SMTP_FROM: z.string().default(''),
+  UNISENDER_API_KEY: z.string().trim().default(''),
+  UNISENDER_API_URL: z.string().url().default('https://go2.unisender.ru/ru/transactional/api/v1/email/send.json'),
+  UNISENDER_FROM_EMAIL: z.string().trim().email().or(z.literal('')).default(''),
+  UNISENDER_FROM_NAME: z.string().trim().max(100).default('NEXORA ID'),
   OAUTH_CLIENTS_JSON: z.string().default('[]'),
   NEXORA_CLIENT_SECRET: z.string().default(''),
   NEXORA_SERVICE_API_KEY: z.string().default(''),
@@ -42,6 +46,15 @@ if (!parsed.success) {
 }
 
 const raw = parsed.data;
+const unisenderApiUrl = new URL(raw.UNISENDER_API_URL);
+const allowedUnisenderHosts = new Set(['goapi.unisender.ru', 'go1.unisender.ru', 'go2.unisender.ru']);
+if (
+  unisenderApiUrl.protocol !== 'https:' ||
+  !allowedUnisenderHosts.has(unisenderApiUrl.hostname) ||
+  unisenderApiUrl.pathname !== '/ru/transactional/api/v1/email/send.json'
+) {
+  throw new Error('UNISENDER_API_URL must be the HTTPS email-send endpoint of Unisender Go.');
+}
 if (raw.NODE_ENV === 'production' && !raw.AUTH_PUBLIC_URL.startsWith('https://')) {
   throw new Error('AUTH_PUBLIC_URL must use HTTPS in production.');
 }
