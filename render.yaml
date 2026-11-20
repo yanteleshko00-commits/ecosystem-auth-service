@@ -24,6 +24,14 @@ services:
         value: "true"
       - key: TOKEN_PEPPER
         generateValue: true
+      - key: UNISENDER_API_KEY
+        sync: false
+      - key: UNISENDER_API_URL
+        value: https://go2.unisender.ru/ru/transactional/api/v1/email/send.json
+      - key: UNISENDER_FROM_EMAIL
+        sync: false
+      - key: UNISENDER_FROM_NAME
+        value: NEXORA ID
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
