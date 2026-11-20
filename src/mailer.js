@@ -1,29 +1,4 @@
-import nodemailer from 'nodemailer';
 import { config } from './config.js';
-
-let transporter;
-function getTransporter() {
-  const missing = [];
-  if (!config.SMTP_HOST) missing.push('SMTP_HOST');
-  if (!config.SMTP_USER) missing.push('SMTP_USER');
-  if (!config.SMTP_PASSWORD) missing.push('SMTP_PASSWORD');
-  if (!config.SMTP_FROM) missing.push('SMTP_FROM');
-  if (missing.length) {
-    throw new Error('Email delivery is not configured. Missing: ' + missing.join(', '));
-  }
-  if (!transporter) {
-    transporter = nodemailer.createTransport({
-      host: config.SMTP_HOST,
-      port: config.SMTP_PORT,
-      secure: config.SMTP_SECURE === 'true',
-      auth: { user: config.SMTP_USER, pass: config.SMTP_PASSWORD },
-      connectionTimeout: 12000,
-      greetingTimeout: 12000,
-      socketTimeout: 15000
-    });
-  }
-  return transporter;
-}
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, character => ({
@@ -31,7 +6,18 @@ function escapeHtml(value) {
   })[character]);
 }
 
+function getMissingEmailConfig() {
+  const missing = [];
+  if (!config.UNISENDER_API_KEY) missing.push('UNISENDER_API_KEY');
+  if (!config.UNISENDER_FROM_EMAIL) missing.push('UNISENDER_FROM_EMAIL');
+  if (missing.length) {
+    throw new Error('Unisender Go email delivery is not configured. Missing: ' + missing.join(', '));
+  }
+}
+
 export async function sendCodeEmail({ to, code, purpose }) {
+  getMissingEmailConfig();
+
   const isReset = purpose === 'reset_password';
   const isLogin = purpose === 'login';
   const subject = isLogin
@@ -63,5 +49,80 @@ export async function sendCodeEmail({ to, code, purpose }) {
     '<div style="padding:18px 30px 24px;border-top:1px solid #edf0f5;color:#8a95a7;font-size:12px;line-height:1.55">Если вы не запрашивали этот код, просто проигнорируйте письмо.<br>NEXORA ID · Единый аккаунт экосистемы</div>',
     '</div></body></html>'
   ].join('');
-  return getTransporter().sendMail({ from: config.SMTP_FROM, to, subject, text, html });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+  timeout.unref?.();
+
+  let response;
+  try {
+    response = await fetch(config.UNISENDER_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-API-KEY': config.UNISENDER_API_KEY
+      },
+      body: JSON.stringify({
+        message: {
+          recipients: [{ email: to }],
+          body: { html, plaintext: text },
+          subject,
+          from_email: config.UNISENDER_FROM_EMAIL,
+          from_name: config.UNISENDER_FROM_NAME || 'NEXORA ID',
+          track_links: 0,
+          track_read: 0,
+          tags: ['nexora-id', 'authentication']
+        }
+      }),
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      const timeoutError = new Error('Unisender Go API request timed out.');
+      timeoutError.code = 'UNISENDER_TIMEOUT';
+      throw timeoutError;
+    }
+    const networkError = new Error('Could not connect to Unisender Go API.');
+    networkError.code = 'UNISENDER_NETWORK_ERROR';
+    throw networkError;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    const parseError = new Error('Unisender Go API returned an invalid response.');
+    parseError.httpStatus = response.status;
+    throw parseError;
+  }
+
+  if (!response.ok || result?.status !== 'success') {
+    const apiError = new Error(
+      'Unisender Go API rejected the request' +
+      ' (HTTP ' + response.status +
+      (Number.isInteger(result?.code) ? ', API code ' + result.code : '') + ').'
+    );
+    apiError.httpStatus = response.status;
+    if (Number.isInteger(result?.code)) apiError.apiCode = result.code;
+    throw apiError;
+  }
+
+  const failedRecipients = result.failed_emails && typeof result.failed_emails === 'object'
+    ? Object.entries(result.failed_emails)
+    : [];
+  const rejected = failedRecipients.find(([email]) => email.toLowerCase() === to.toLowerCase());
+  if (rejected) {
+    const recipientError = new Error('Unisender Go rejected the recipient (' + String(rejected[1]).slice(0, 80) + ').');
+    recipientError.code = 'UNISENDER_RECIPIENT_REJECTED';
+    throw recipientError;
+  }
+
+  return {
+    messageId: result.job_id,
+    accepted: result.emails ?? [to],
+    rejected: []
+  };
 }
