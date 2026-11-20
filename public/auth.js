@@ -97,12 +97,27 @@ $('#password-login-toggle').addEventListener('click', () => {
   showMessage('');
 });
 
-async function sendLoginCode(email, button) {
+function beginLoginResendCooldown() {
+  const button = $('#login-code-resend');
+  button.disabled = true;
+  let seconds = 30;
+  button.textContent = 'Повторить через ' + seconds + ' сек.';
+  if (loginResendTimer) clearInterval(loginResendTimer);
+  loginResendTimer = setInterval(() => {
+    seconds -= 1;
+    if (seconds <= 0) {
+      clearInterval(loginResendTimer);
+      button.disabled = false;
+      button.textContent = 'Отправить код повторно';
+    } else {
+      button.textContent = 'Повторить через ' + seconds + ' сек.';
+    }
+  }, 1000);
+}
+
+async function sendLoginCode(email) {
   if (verifyRequestBusy) return;
   verifyRequestBusy = true;
-  const idleText = button.textContent;
-  button.disabled = true;
-  button.textContent = 'Отправляем…';
   try {
     const data = await requestJson('/v1/auth/send-login-code', {
       method: 'POST',
@@ -114,22 +129,9 @@ async function sendLoginCode(email, button) {
     $('#login-code-resend').classList.remove('hidden');
     $('#submit').textContent = 'Подтвердить и войти';
     showMessage(data.message || 'Проверьте почту и введите шестизначный код.', true);
+    beginLoginResendCooldown();
     $('#login-code').focus();
-    let seconds = 30;
-    button.textContent = seconds + ' сек.';
-    loginResendTimer = setInterval(() => {
-      seconds -= 1;
-      if (seconds <= 0) {
-        clearInterval(loginResendTimer);
-        button.disabled = false;
-        button.textContent = idleText;
-      } else {
-        button.textContent = seconds + ' сек.';
-      }
-    }, 1000);
   } catch (error) {
-    button.disabled = false;
-    button.textContent = idleText;
     showMessage(error.message || 'Не удалось отправить код.');
   } finally {
     verifyRequestBusy = false;
@@ -138,7 +140,7 @@ async function sendLoginCode(email, button) {
 $('#login-code-resend').addEventListener('click', async () => {
   const email = $('#email').value.trim();
   if (!email || verifyRequestBusy) return;
-  await sendLoginCode(email, $('#login-code-resend'));
+  await sendLoginCode(email);
 });
 
 $('#auth-form').addEventListener('submit', async event => {
@@ -153,7 +155,7 @@ $('#auth-form').addEventListener('submit', async event => {
   }
 
   if (mode === 'login' && !passwordLoginMode && !loginCodeRequested) {
-    await sendLoginCode(email, submit);
+    await sendLoginCode(email);
     return;
   }
 
