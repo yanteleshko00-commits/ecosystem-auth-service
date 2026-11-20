@@ -25,6 +25,9 @@ const EnvSchema = z.object({
   SMTP_PASSWORD: z.string().default(''),
   SMTP_FROM: z.string().default(''),
   OAUTH_CLIENTS_JSON: z.string().default('[]'),
+  PROJECTS_OAUTH_CLIENT_SECRET: z.string().default(''),
+  PROJECTS_SERVICE_API_KEY: z.string().default(''),
+  PROJECTS_REDIRECT_URI: z.string().url().default('https://vse-proekty-ian-1.onrender.com/auth/callback'),
   PAYMENT_WEBHOOK_SECRET: z.string().default(''),
   TRUST_PROXY: z.string().default('false')
 });
@@ -45,6 +48,24 @@ try {
 } catch (error) {
   console.error('OAUTH_CLIENTS_JSON must be a valid JSON array of OAuth clients.');
   throw error;
+}
+
+if (Boolean(raw.PROJECTS_OAUTH_CLIENT_SECRET) !== Boolean(raw.PROJECTS_SERVICE_API_KEY)) {
+  throw new Error('Set both PROJECTS_OAUTH_CLIENT_SECRET and PROJECTS_SERVICE_API_KEY to register the projects-ian OAuth client.');
+}
+if (raw.PROJECTS_OAUTH_CLIENT_SECRET) {
+  if (raw.PROJECTS_OAUTH_CLIENT_SECRET.length < 32 || raw.PROJECTS_SERVICE_API_KEY.length < 32) {
+    throw new Error('projects-ian OAuth secrets must each contain at least 32 characters.');
+  }
+  if (clients.some(client => client.clientId === 'projects-ian')) {
+    throw new Error('projects-ian is already present in OAUTH_CLIENTS_JSON; do not register it twice.');
+  }
+  clients.push({
+    clientId: 'projects-ian',
+    clientSecret: raw.PROJECTS_OAUTH_CLIENT_SECRET,
+    serviceApiKey: raw.PROJECTS_SERVICE_API_KEY,
+    redirectUris: [raw.PROJECTS_REDIRECT_URI]
+  });
 }
 
 if (new Set(clients.map(c => c.clientId)).size !== clients.length) {
