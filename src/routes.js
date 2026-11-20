@@ -134,11 +134,11 @@ router.post('/v1/auth/register', requireSameOrigin, async (req, res) => {
     await sendCodeEmail({ to: email, code, purpose: 'verify_email' });
   } catch (error) {
     console.error('Registration email delivery failed:', {
-      code: error.code, responseCode: error.responseCode, command: error.command, message: error.message
+      code: error.code, httpStatus: error.httpStatus, apiCode: error.apiCode, message: error.message
     });
     return res.status(503).json({
       error: 'email_delivery_unavailable',
-      message: 'Аккаунт создан, но письмо не отправлено. Проверьте настройки SMTP и подтверждённый адрес отправителя в Brevo.'
+      message: 'Аккаунт создан, но письмо не отправлено. Проверьте API-ключ Unisender Go и подтверждённый адрес отправителя.'
     });
   }
   return res.status(201).json({ ok: true, message: 'Проверьте почту и введите код подтверждения.' });
@@ -161,7 +161,7 @@ router.post('/v1/auth/send-login-code', requireSameOrigin, async (req, res) => {
       await sendCodeEmail({ to: email, code, purpose: 'login' });
     } catch (error) {
       console.error('Login code email delivery failed:', {
-        code: error.code, responseCode: error.responseCode, command: error.command, message: error.message
+        code: error.code, httpStatus: error.httpStatus, apiCode: error.apiCode, message: error.message
       });
       return res.status(503).json({
         error: 'email_delivery_unavailable',
@@ -207,18 +207,18 @@ router.post('/v1/auth/resend-verification', requireSameOrigin, async (req, res) 
   const code = await createEmailToken(user.rows[0].id, 'verify_email');
   try {
     const info = await sendCodeEmail({ to: email, code, purpose: 'verify_email' });
-    console.info('Verification email accepted by SMTP relay:', {
+    console.info('Verification email accepted by Unisender Go API:', {
       messageId: info.messageId,
       acceptedCount: info.accepted?.length ?? 0,
       rejectedCount: info.rejected?.length ?? 0
     });
   } catch (error) {
     console.error('Verification email resend failed:', {
-      code: error.code, responseCode: error.responseCode, command: error.command, message: error.message
+      code: error.code, httpStatus: error.httpStatus, apiCode: error.apiCode, message: error.message
     });
     return res.status(503).json({
       error: 'email_delivery_unavailable',
-      message: 'Сервер не смог отправить письмо. Проверьте настройки Brevo SMTP и подтверждённый адрес отправителя.'
+      message: 'Сервер не смог отправить письмо. Проверьте API-ключ Unisender Go и подтверждённый адрес отправителя.'
     });
   }
   return res.json({ ok: true, message: 'Код принят почтовым сервером. Проверьте Входящие и Спам.' });
