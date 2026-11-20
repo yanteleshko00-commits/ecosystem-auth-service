@@ -71,8 +71,6 @@ export async function sendCodeEmail({ to, code, purpose }) {
           global_language: 'ru',
           from_email: config.UNISENDER_FROM_EMAIL,
           from_name: config.UNISENDER_FROM_NAME || 'NEXORA ID',
-          track_links: 0,
-          track_read: 0,
           tags: ['nexora-id', 'authentication']
         }
       }),
@@ -107,7 +105,9 @@ export async function sendCodeEmail({ to, code, purpose }) {
       (Number.isInteger(result?.code) ? ', API code ' + result.code : '') + ').'
     );
     apiError.httpStatus = response.status;
-    if (Number.isInteger(result?.code)) apiError.apiCode = result.code;
+    if (typeof result?.code === 'string' || Number.isInteger(result?.code)) {
+      apiError.apiCode = String(result.code).slice(0, 80);
+    }
     throw apiError;
   }
 
