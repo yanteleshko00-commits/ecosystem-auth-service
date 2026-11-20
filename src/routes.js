@@ -15,11 +15,11 @@ import { packages, resolveUsageBucket } from './policy.js';
 export const router = express.Router();
 const codeTtlMinutes = 10;
 const sessionTtlSeconds = config.SESSION_TTL_DAYS * 86400;
-const registerSchema = z.object({ name: z.string().trim().min(1).max(60), email: z.string().email().max(254), password: z.string().min(10).max(128) });
-const loginSchema = z.object({ email: z.string().email().max(254), password: z.string().min(10).max(128) });
+const registerSchema = z.object({ name: z.string().trim().min(1).max(60), email: z.string().email().max(254), password: z.string().min(6).max(128) });
+const loginSchema = z.object({ email: z.string().email().max(254), password: z.string().min(6).max(128) });
 const emailSchema = z.object({ email: z.string().email().max(254) });
 const codeSchema = z.object({ email: z.string().email().max(254), code: z.string().regex(/^\d{6}$/) });
-const passwordSchema = z.string().min(10).max(128);
+const passwordSchema = z.string().min(6).max(128);
 
 function issueCookieSession(res, token) {
   setSessionCookie(res, token, sessionTtlSeconds);
