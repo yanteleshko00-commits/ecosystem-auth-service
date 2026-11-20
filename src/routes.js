@@ -254,10 +254,23 @@ router.post('/v1/auth/reset-password', requireSameOrigin, async (req, res) => {
 });
 
 router.get('/oauth/authorize', async (req, res) => {
-  const { client_id: clientId, redirect_uri: redirectUri, response_type: responseType, state, code_challenge: challenge, code_challenge_method: method } = req.query;
+  const { client_id: clientId, redirect_uri: redirectUri, response_type: responseType, state, code_challenge: challenge, code_challenge_method: method, device_id: deviceId, device_signature: deviceSignature } = req.query;
   const client = config.clients.find(item => item.clientId === clientId);
   if (!client || responseType !== 'code' || typeof redirectUri !== 'string' || !client.redirectUris.includes(redirectUri) || typeof state !== 'string' || state.length < 16 || state.length > 512 || typeof challenge !== 'string' || !/^[A-Za-z0-9_-]{43,128}$/.test(challenge) || method !== 'S256') {
     return res.status(400).send('Invalid OAuth authorization request.');
+  }
+  if (deviceId !== undefined) {
+    const expectedDeviceSignature = crypto.createHmac('sha256', client.clientSecret).update(String(deviceId)).digest('hex');
+    if (typeof deviceId !== 'string' || !/^[A-Za-z0-9_-]{32,128}$/.test(deviceId) || typeof deviceSignature !== 'string' || !timingSafeEqualText(deviceSignature, expectedDeviceSignature)) {
+      return res.status(400).send('Invalid device registration token.');
+    }
+    res.cookie('ecosystem_device', deviceId, {
+      httpOnly: true,
+      secure: config.cookieSecure,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 10 * 365 * 24 * 60 * 60 * 1000
+    });
   }
   const user = await findSessionUser(req);
   if (!user) {
