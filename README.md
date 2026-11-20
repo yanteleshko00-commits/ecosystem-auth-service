@@ -4,9 +4,10 @@
 
 ## Что реализовано
 
-- Регистрация по email и паролю.
-- Подтверждение email шестизначным кодом.
-- Вход, выход, восстановление пароля.
+- Регистрация по email и паролю с подтверждением адреса.
+- Вход в NEXORA ID по одноразовому шестизначному коду из письма (15 минут), с сохранением входа для OAuth-подключённых сервисов.
+- Альтернативный вход по паролю для существующих аккаунтов, выход и восстановление пароля.
+- После подтверждения email при регистрации сессия создаётся автоматически.
 - Хеширование паролей Argon2id.
 - HttpOnly-сессия на домене auth-сервиса.
 - OAuth 2.0 Authorization Code + PKCE (S256) для входа с независимых доменов.
@@ -46,6 +47,28 @@
 5. В отдельном терминале выполните миграцию: `npm install && npm run migrate` (команда подключается к адресу БД из `.env`; при запуске с хоста используйте `localhost:5432`).
 6. Откройте `http://localhost:4000/login`.
 
+## Подключение «Все проекты #Ian» к NEXORA ID
+
+Для сайта генератора предусмотрен OAuth-клиент `projects-ian`. Его можно зарегистрировать, не меняя существующий объект NEXORA в `OAUTH_CLIENTS_JSON`.
+
+В Render у центрального сервиса `ecosystem-auth-service` добавьте:
+
+- `PROJECTS_OAUTH_CLIENT_SECRET` — случайная строка не короче 32 символов.
+- `PROJECTS_SERVICE_API_KEY` — другая случайная строка не короче 32 символов.
+- `PROJECTS_REDIRECT_URI` — `https://vse-proekty-ian-1.onrender.com/auth/callback`.
+
+В Render у сервиса сайта «Все проекты #Ian» добавьте:
+
+- `AUTH_PUBLIC_URL=https://ecosystem-auth-service.onrender.com`
+- `OAUTH_CLIENT_ID=projects-ian`
+- `OAUTH_CLIENT_SECRET` — то же значение, что `PROJECTS_OAUTH_CLIENT_SECRET` у центрального сервиса.
+- `PROJECT_SESSION_SECRET` — отдельная случайная строка не короче 32 символов.
+- `APP_URL=https://vse-proekty-ian-1.onrender.com`
+
+Не используйте один и тот же секрет для `PROJECTS_SERVICE_API_KEY` и `PROJECT_SESSION_SECRET`. Секреты не добавляйте в GitHub и не отправляйте в переписке. После сохранения переменных перезапустите оба Render-сервиса. Центральный сервис зарегистрирует OAuth-клиент автоматически при старте.
+
+Кнопка входа генератора открывает центральную страницу NEXORA ID. После входа пользователь возвращается на исходный сайт; имя и email доступны сайту через подписанную HttpOnly-сессию. Выход завершает центральную сессию и возвращает пользователя на сайт.
+
 ## OAuth-подключение отдельного сайта
 
 1. На сервере сайта создайте случайные `state` и `code_verifier` (43–128 символов), а также `code_challenge = BASE64URL(SHA256(code_verifier))`.
@@ -83,6 +106,8 @@
 
 - `GET /health`
 - `POST /v1/auth/register`
+- `POST /v1/auth/send-login-code`
+- `POST /v1/auth/verify-login-code`
 - `POST /v1/auth/verify-email`
 - `POST /v1/auth/resend-verification`
 - `POST /v1/auth/login`
@@ -90,6 +115,7 @@
 - `POST /v1/auth/forgot-password`
 - `POST /v1/auth/reset-password`
 - `GET /v1/me`
+- `GET /logout`
 - `GET /oauth/authorize`
 - `POST /oauth/token`
 - `GET /v1/internal/users/:userId/summary`
