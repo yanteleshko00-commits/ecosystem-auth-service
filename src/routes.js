@@ -66,13 +66,23 @@ async function makeSession(userId, res) {
 
 router.get('/health', async (_req, res) => {
   await pool.query('SELECT 1');
-  const emailDeliveryConfigured = Boolean(config.SMTP_HOST && config.SMTP_USER && config.SMTP_PASSWORD && config.SMTP_FROM);
+  const sandboxMode = config.UNISENDER_USE_SANDBOX === 'true';
+  const hasApiKey = Boolean(config.UNISENDER_API_KEY);
+  const hasSender = Boolean(config.UNISENDER_FROM_EMAIL);
+  const emailDeliveryConfigured = hasApiKey && (hasSender || sandboxMode);
+  const emailDeliveryNote = !hasApiKey
+    ? 'missing_api_key'
+    : (!hasSender && !sandboxMode
+      ? 'missing_verified_sender_email'
+      : (sandboxMode ? 'sandbox_only_confirmed_recipients' : 'production_sender_domain_must_be_verified'));
   res.json({
     ok: true,
     service: 'ecosystem-auth',
     database: 'connected',
-    emailProvider: 'yandex_smtp',
+    emailProvider: 'unisender_go_api',
     emailDeliveryConfigured,
+    emailDeliveryMode: sandboxMode ? 'sandbox' : 'production',
+    emailDeliveryNote,
     oauthClients: config.clients.map(client => client.clientId),
     emailCodeTtlMinutes: codeTtlMinutes
   });
