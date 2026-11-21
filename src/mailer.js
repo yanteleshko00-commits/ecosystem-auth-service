@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { config } from './config.js';
 
+let sandboxFromEmailPromise = null;
+
 function createDeliveryError(message, { code, httpStatus, apiCode } = {}) {
   const error = new Error(message);
   if (code) error.code = code;
@@ -12,7 +14,9 @@ function createDeliveryError(message, { code, httpStatus, apiCode } = {}) {
 function getApiSettings() {
   const missing = [];
   if (!config.UNISENDER_API_KEY) missing.push('UNISENDER_API_KEY');
-  if (!config.UNISENDER_FROM_EMAIL) missing.push('UNISENDER_FROM_EMAIL');
+  if (!config.UNISENDER_FROM_EMAIL && config.UNISENDER_USE_SANDBOX !== 'true') {
+    missing.push('UNISENDER_FROM_EMAIL (or set UNISENDER_USE_SANDBOX=true for testing)');
+  }
   if (missing.length) {
     throw createDeliveryError(
       'UniSender Go API is not configured. Missing: ' + missing.join(', '),
@@ -24,11 +28,73 @@ function getApiSettings() {
   while (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
 
   return {
+    baseUrl,
     endpoint: baseUrl + '/email/send.json',
     apiKey: config.UNISENDER_API_KEY,
     fromEmail: config.UNISENDER_FROM_EMAIL,
     fromName: config.UNISENDER_FROM_NAME
   };
+}
+
+async function getSandboxFromEmail(settings, signal) {
+  if (!sandboxFromEmailPromise) {
+    sandboxFromEmailPromise = (async () => {
+      const response = await fetch(settings.baseUrl + '/domain/get-sandbox-domain.json', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-API-KEY': settings.apiKey
+        },
+        body: '{}',
+        signal
+      });
+      const text = await response.text();
+      let payload = {};
+      try {
+        payload = text ? JSON.parse(text) : {};
+      } catch {
+        throw createDeliveryError('UniSender Go returned an invalid sandbox-domain response.', {
+          code: 'UNISENDER_INVALID_RESPONSE',
+          httpStatus: response.status
+        });
+      }
+
+      if (!response.ok || payload.status !== 'success' || !payload.domain) {
+        throw createDeliveryError(
+          payload.message || 'UniSender Go could not create a sandbox domain. An account-level API key may be required.',
+          {
+            code: 'UNISENDER_SANDBOX_ERROR',
+            httpStatus: response.status,
+            apiCode: payload.code
+          }
+        );
+      }
+
+      let domain;
+      try {
+        const domainUrl = String(payload.domain).includes('://')
+          ? String(payload.domain)
+          : 'https://' + String(payload.domain);
+        domain = new URL(domainUrl).hostname;
+      } catch {
+        throw createDeliveryError('UniSender Go returned an invalid sandbox domain.', {
+          code: 'UNISENDER_INVALID_SANDBOX_DOMAIN'
+        });
+      }
+      if (!domain) {
+        throw createDeliveryError('UniSender Go returned an empty sandbox domain.', {
+          code: 'UNISENDER_INVALID_SANDBOX_DOMAIN'
+        });
+      }
+      return 'noreply@' + domain;
+    })().catch(error => {
+      sandboxFromEmailPromise = null;
+      throw error;
+    });
+  }
+
+  return sandboxFromEmailPromise;
 }
 
 function escapeHtml(value) {
@@ -91,6 +157,7 @@ export async function sendCodeEmail({ to, code, purpose }) {
   timeout.unref?.();
 
   try {
+    const fromEmail = settings.fromEmail || await getSandboxFromEmail(settings, controller.signal);
     const response = await fetch(settings.endpoint, {
       method: 'POST',
       headers: {
@@ -102,7 +169,7 @@ export async function sendCodeEmail({ to, code, purpose }) {
         message: {
           recipients: [{ email: to }],
           subject,
-          from_email: settings.fromEmail,
+          from_email: fromEmail,
           from_name: settings.fromName,
           body: { html, plaintext: text },
           global_language: 'ru',
