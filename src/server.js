@@ -48,7 +48,7 @@ void verifyEmailProvider()
   .catch(error => console.error('Email provider verification failed:', {
     code: error.code,
     httpStatus: error.httpStatus,
-    apiCode: error.apiCode,
+    smtpResponseCode: error.smtpResponseCode,
     message: error.message
   }));
 
