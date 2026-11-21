@@ -139,7 +139,7 @@ router.post('/v1/auth/register', requireSameOrigin, async (req, res) => {
     });
     return res.status(503).json({
       error: 'email_delivery_unavailable',
-      message: 'Аккаунт создан, но письмо не отправлено. Проверьте настройки SMTP Яндекса и пароль приложения.'
+      message: 'Аккаунт создан, но письмо не отправлено. Проверьте API-ключ UniSender Go и подтверждённый домен отправителя.'
     });
   }
   return res.status(201).json({ ok: true, message: 'Проверьте почту и введите код подтверждения.' });
@@ -219,7 +219,7 @@ router.post('/v1/auth/resend-verification', requireSameOrigin, async (req, res) 
     });
     return res.status(503).json({
       error: 'email_delivery_unavailable',
-      message: 'Сервер не смог отправить письмо. Проверьте SMTP Яндекса и пароль приложения.'
+      message: 'Сервер не смог отправить письмо. Проверьте API-ключ UniSender Go и подтверждённый домен отправителя.'
     });
   }
   return res.json({ ok: true, message: 'Код отправлен. Проверьте Входящие и Спам.' });
