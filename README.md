@@ -27,7 +27,7 @@
 1. Создайте **отдельный приватный GitHub-репозиторий** для этого проекта и загрузите в него содержимое архива. Не помещайте файлы в репозиторий `vse-proekty-ian`.
 2. В Render выберите **New → Blueprint**, подключите новый репозиторий и проверьте ресурсы из `render.yaml` до подтверждения. Blueprint не должен менять существующий сайт.
 3. После создания сервиса откройте Environment и задайте `AUTH_PUBLIC_URL` как выданный Render адрес `https://...onrender.com`.
-4. Заполните `UNISENDER_API_KEY` и `UNISENDER_FROM_EMAIL` данными UniSender Go. Домен отправителя должен быть подтверждён и иметь настроенный DKIM. Без почтовой настройки регистрация с подтверждением email не завершится. Не добавляйте ключ в GitHub.
+4. Заполните `UNISENDER_API_KEY` и `UNISENDER_FROM_EMAIL` данными UniSender Go. `UNISENDER_FROM_EMAIL` должен быть адресом на подтверждённом домене отправки с активными SPF/DKIM. API работает по HTTPS через `UNISENDER_API_URL` (по умолчанию `https://goapi.unisender.ru/ru/transactional/api/v1`), а не через SMTP. Для тестов можно использовать sandbox-домен, но отправлять с него можно только на вручную подтверждённые адреса. Без почтовой настройки регистрация с подтверждением email не завершится. Не добавляйте ключ в GitHub.
 5. На первом этапе оставьте `OAUTH_CLIENTS_JSON=[]`: сайты ещё не зарегистрированы как OAuth-клиенты.
 6. Проверьте `/health`, регистрацию тестового аккаунта, письмо с кодом, подтверждение, вход и восстановление пароля. Используйте только тестовую почту.
 7. До подключения реальных пользователей замените бесплатную базу на постоянную PostgreSQL, включите резервные копии, проверьте восстановление и настройте мониторинг.
@@ -42,7 +42,7 @@
 
 1. Установите Node.js 22+ и Docker.
 2. Скопируйте `.env.example` в `.env`.
-3. В `.env` задайте `DATABASE_URL`, параметры UniSender Go (`UNISENDER_API_KEY` и `UNISENDER_FROM_EMAIL`), `TOKEN_PEPPER` и `OAUTH_CLIENTS_JSON`. Для каждого сайта укажите отдельные `clientId`, `clientSecret`, `serviceApiKey` и точные callback URL.
+3. В `.env` задайте `DATABASE_URL`, параметры UniSender Go API (`UNISENDER_API_KEY`, `UNISENDER_FROM_EMAIL`, при необходимости `UNISENDER_API_URL`), `TOKEN_PEPPER` и `OAUTH_CLIENTS_JSON`. Для каждого сайта укажите отдельные `clientId`, `clientSecret`, `serviceApiKey` и точные callback URL.
 4. Запустите `docker compose up --build`.
 5. В отдельном терминале выполните миграцию: `npm install && npm run migrate` (команда подключается к адресу БД из `.env`; при запуске с хоста используйте `localhost:5432`).
 6. Откройте `http://localhost:4000/login`.
