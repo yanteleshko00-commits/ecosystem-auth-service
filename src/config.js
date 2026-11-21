@@ -24,10 +24,12 @@ const EnvSchema = z.object({
   SMTP_USER: z.string().default(''),
   SMTP_PASSWORD: z.string().default(''),
   SMTP_FROM: z.string().default(''),
-  SYNAPSEA_API_KEY: z.string().trim().default(''),
-  SYNAPSEA_API_URL: z.string().url().default('https://api.mail.synapsea.agency/v1/emails'),
+  UNISENDER_API_KEY: z.string().trim().default(''),
+  UNISENDER_API_URL: z.string().url().default('https://goapi.unisender.ru/ru/transactional/api/v1/email/send.json'),
+  UNISENDER_FROM_EMAIL: z.string().trim().email().or(z.literal('')).default(''),
+  UNISENDER_FROM_NAME: z.string().trim().max(100).default('NEXORA ID'),
+  // Compatibility fallback for the sender address configured before the UniSender migration.
   SYNAPSEA_FROM_EMAIL: z.string().trim().email().or(z.literal('')).default(''),
-  SYNAPSEA_FROM_NAME: z.string().trim().max(100).default('NEXORA ID'),
   OAUTH_CLIENTS_JSON: z.string().default('[]'),
   NEXORA_CLIENT_SECRET: z.string().default(''),
   NEXORA_SERVICE_API_KEY: z.string().default(''),
@@ -46,13 +48,13 @@ if (!parsed.success) {
 }
 
 const raw = parsed.data;
-const synapseaApiUrl = new URL(raw.SYNAPSEA_API_URL);
+const unisenderApiUrl = new URL(raw.UNISENDER_API_URL);
 if (
-  synapseaApiUrl.protocol !== 'https:' ||
-  synapseaApiUrl.hostname !== 'api.mail.synapsea.agency' ||
-  synapseaApiUrl.pathname !== '/v1/emails'
+  unisenderApiUrl.protocol !== 'https:' ||
+  !['goapi.unisender.ru', 'go1.unisender.ru', 'go2.unisender.ru'].includes(unisenderApiUrl.hostname) ||
+  unisenderApiUrl.pathname !== '/ru/transactional/api/v1/email/send.json'
 ) {
-  throw new Error('SYNAPSEA_API_URL must use the official Synapsea Mail HTTPS endpoint.');
+  throw new Error('UNISENDER_API_URL must use an official UniSender Go HTTPS endpoint.');
 }
 if (raw.NODE_ENV === 'production' && !raw.AUTH_PUBLIC_URL.startsWith('https://')) {
   throw new Error('AUTH_PUBLIC_URL must use HTTPS in production.');
@@ -87,6 +89,7 @@ if (new Set(clients.map(c => c.clientId)).size !== clients.length) {
 
 export const config = Object.freeze({
   ...raw,
+  UNISENDER_FROM_EMAIL: raw.UNISENDER_FROM_EMAIL || raw.SYNAPSEA_FROM_EMAIL,
   databaseSsl: raw.DATABASE_SSL === 'true',
   cookieSecure: raw.COOKIE_SECURE === 'true' || raw.NODE_ENV === 'production',
   trustProxy: raw.TRUST_PROXY === 'true',
