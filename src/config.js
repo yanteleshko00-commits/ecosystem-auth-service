@@ -18,18 +18,12 @@ const EnvSchema = z.object({
   TOKEN_PEPPER: z.string().min(32),
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
   COOKIE_SECURE: z.string().default('false'),
-  SMTP_HOST: z.string().default(''),
-  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
-  SMTP_SECURE: z.string().default('false'),
+  SMTP_HOST: z.string().default('smtp.yandex.ru'),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(465),
+  SMTP_SECURE: z.string().default('true'),
   SMTP_USER: z.string().default(''),
   SMTP_PASSWORD: z.string().default(''),
   SMTP_FROM: z.string().default(''),
-  UNISENDER_API_KEY: z.string().trim().default(''),
-  UNISENDER_API_URL: z.string().url().default('https://goapi.unisender.ru/ru/transactional/api/v1/email/send.json'),
-  UNISENDER_FROM_EMAIL: z.string().trim().email().or(z.literal('')).default(''),
-  UNISENDER_FROM_NAME: z.string().trim().max(100).default('NEXORA ID'),
-  // Compatibility fallback for the sender address configured before the UniSender migration.
-  SYNAPSEA_FROM_EMAIL: z.string().trim().email().or(z.literal('')).default(''),
   OAUTH_CLIENTS_JSON: z.string().default('[]'),
   NEXORA_CLIENT_SECRET: z.string().default(''),
   NEXORA_SERVICE_API_KEY: z.string().default(''),
@@ -48,14 +42,6 @@ if (!parsed.success) {
 }
 
 const raw = parsed.data;
-const unisenderApiUrl = new URL(raw.UNISENDER_API_URL);
-if (
-  unisenderApiUrl.protocol !== 'https:' ||
-  !['goapi.unisender.ru', 'go1.unisender.ru', 'go2.unisender.ru'].includes(unisenderApiUrl.hostname) ||
-  unisenderApiUrl.pathname !== '/ru/transactional/api/v1/email/send.json'
-) {
-  throw new Error('UNISENDER_API_URL must use an official UniSender Go HTTPS endpoint.');
-}
 if (raw.NODE_ENV === 'production' && !raw.AUTH_PUBLIC_URL.startsWith('https://')) {
   throw new Error('AUTH_PUBLIC_URL must use HTTPS in production.');
 }
@@ -89,7 +75,6 @@ if (new Set(clients.map(c => c.clientId)).size !== clients.length) {
 
 export const config = Object.freeze({
   ...raw,
-  UNISENDER_FROM_EMAIL: raw.UNISENDER_FROM_EMAIL || raw.SYNAPSEA_FROM_EMAIL,
   databaseSsl: raw.DATABASE_SSL === 'true',
   cookieSecure: raw.COOKIE_SECURE === 'true' || raw.NODE_ENV === 'production',
   trustProxy: raw.TRUST_PROXY === 'true',
