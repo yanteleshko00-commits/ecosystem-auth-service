@@ -66,12 +66,12 @@ async function makeSession(userId, res) {
 
 router.get('/health', async (_req, res) => {
   await pool.query('SELECT 1');
-  const emailDeliveryConfigured = Boolean(config.UNISENDER_API_KEY && config.UNISENDER_FROM_EMAIL);
+  const emailDeliveryConfigured = Boolean(config.SMTP_HOST && config.SMTP_USER && config.SMTP_PASSWORD && config.SMTP_FROM);
   res.json({
     ok: true,
     service: 'ecosystem-auth',
     database: 'connected',
-    emailProvider: 'unisender_go',
+    emailProvider: 'yandex_smtp',
     emailDeliveryConfigured,
     oauthClients: config.clients.map(client => client.clientId),
     emailCodeTtlMinutes: codeTtlMinutes
@@ -139,7 +139,7 @@ router.post('/v1/auth/register', requireSameOrigin, async (req, res) => {
     });
     return res.status(503).json({
       error: 'email_delivery_unavailable',
-      message: 'Аккаунт создан, но письмо не отправлено. Проверьте API-ключ UniSender Go и подтверждённый адрес отправителя.'
+      message: 'Аккаунт создан, но письмо не отправлено. Проверьте настройки SMTP Яндекса и пароль приложения.'
     });
   }
   return res.status(201).json({ ok: true, message: 'Проверьте почту и введите код подтверждения.' });
@@ -219,10 +219,10 @@ router.post('/v1/auth/resend-verification', requireSameOrigin, async (req, res) 
     });
     return res.status(503).json({
       error: 'email_delivery_unavailable',
-      message: 'Сервер не смог отправить письмо. Проверьте UniSender Go и подтверждённый адрес отправителя.'
+      message: 'Сервер не смог отправить письмо. Проверьте SMTP Яндекса и пароль приложения.'
     });
   }
-  return res.json({ ok: true, message: 'Код принят почтовым сервером. Проверьте Входящие и Спам.' });
+  return res.json({ ok: true, message: 'Код отправлен. Проверьте Входящие и Спам.' });
 });
 
 router.post('/v1/auth/verify-email', requireSameOrigin, async (req, res) => {
