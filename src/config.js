@@ -20,6 +20,7 @@ const EnvSchema = z.object({
   COOKIE_SECURE: z.string().default('false'),
   UNISENDER_API_KEY: z.string().default(''),
   UNISENDER_FROM_EMAIL: z.string().email().or(z.literal('')).default(''),
+  UNISENDER_USE_SANDBOX: z.string().default('false'),
   UNISENDER_FROM_NAME: z.string().trim().min(1).max(78).default('NEXORA ID'),
   UNISENDER_API_URL: z.string().url().default('https://goapi.unisender.ru/ru/transactional/api/v1'),
   UNISENDER_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
