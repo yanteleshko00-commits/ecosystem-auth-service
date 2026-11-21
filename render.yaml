@@ -34,6 +34,7 @@ services:
         sync: false
       - key: SMTP_PASSWORD
         sync: false
+      # Optional override; defaults to SMTP_USER@yandex.ru for the Yandex host.
       - key: SMTP_FROM_EMAIL
         sync: false
       - key: SMTP_FROM_NAME
