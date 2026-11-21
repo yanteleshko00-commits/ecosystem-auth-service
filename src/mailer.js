@@ -97,6 +97,38 @@ async function getSandboxFromEmail(settings, signal) {
   return sandboxFromEmailPromise;
 }
 
+export async function verifyEmailProvider() {
+  if (!config.UNISENDER_API_KEY) {
+    throw createDeliveryError('UniSender Go API key is missing.', { code: 'UNISENDER_NOT_CONFIGURED' });
+  }
+  if (config.UNISENDER_USE_SANDBOX !== 'true') {
+    if (!config.UNISENDER_FROM_EMAIL) {
+      throw createDeliveryError('Verified sender email is missing.', { code: 'UNISENDER_NOT_CONFIGURED' });
+    }
+    return { status: 'configured', mode: 'production' };
+  }
+
+  const settings = getApiSettings();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.UNISENDER_TIMEOUT_MS);
+  timeout.unref?.();
+  try {
+    const fromEmail = await getSandboxFromEmail(settings, controller.signal);
+    return {
+      status: 'connected',
+      mode: 'sandbox',
+      senderDomain: fromEmail.slice(fromEmail.indexOf('@') + 1)
+    };
+  } catch (error) {
+    if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+      throw createDeliveryError('UniSender Go API request timed out.', { code: 'UNISENDER_TIMEOUT' });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
