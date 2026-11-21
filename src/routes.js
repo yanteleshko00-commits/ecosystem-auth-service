@@ -67,7 +67,7 @@ async function makeSession(userId, res) {
 router.get('/health', async (_req, res) => {
   await pool.query('SELECT 1');
   const hasCredentials = Boolean(config.SMTP_USER && config.SMTP_PASSWORD);
-  const hasSender = Boolean(config.SMTP_FROM_EMAIL);
+  const hasSender = Boolean(config.SMTP_FROM_EMAIL || config.SMTP_USER);
   const emailDeliveryConfigured = hasCredentials && hasSender;
   const emailDeliveryNote = !hasCredentials
     ? 'missing_smtp_credentials'
