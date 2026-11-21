@@ -18,12 +18,14 @@ const EnvSchema = z.object({
   TOKEN_PEPPER: z.string().min(32),
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
   COOKIE_SECURE: z.string().default('false'),
-  UNISENDER_API_KEY: z.string().default(''),
-  UNISENDER_FROM_EMAIL: z.string().email().or(z.literal('')).default(''),
-  UNISENDER_USE_SANDBOX: z.string().default('false'),
-  UNISENDER_FROM_NAME: z.string().trim().min(1).max(78).default('NEXORA ID'),
-  UNISENDER_API_URL: z.string().url().default('https://goapi.unisender.ru/ru/transactional/api/v1'),
-  UNISENDER_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
+  SMTP_HOST: z.string().trim().min(1).default('smtp.yandex.ru'),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(465),
+  SMTP_SECURE: z.string().default('true'),
+  SMTP_USER: z.string().trim().default(''),
+  SMTP_PASSWORD: z.string().default(''),
+  SMTP_FROM_EMAIL: z.string().email().or(z.literal('')).default(''),
+  SMTP_FROM_NAME: z.string().trim().min(1).max(78).default('NEXORA ID'),
+  SMTP_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
   OAUTH_CLIENTS_JSON: z.string().default('[]'),
   NEXORA_CLIENT_SECRET: z.string().default(''),
   NEXORA_SERVICE_API_KEY: z.string().default(''),
@@ -44,9 +46,6 @@ if (!parsed.success) {
 const raw = parsed.data;
 if (raw.NODE_ENV === 'production' && !raw.AUTH_PUBLIC_URL.startsWith('https://')) {
   throw new Error('AUTH_PUBLIC_URL must use HTTPS in production.');
-}
-if (raw.NODE_ENV === 'production' && !raw.UNISENDER_API_URL.startsWith('https://')) {
-  throw new Error('UNISENDER_API_URL must use HTTPS in production.');
 }
 let clients = [];
 try {
