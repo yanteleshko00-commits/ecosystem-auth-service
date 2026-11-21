@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from './config.js';
 import { pool } from './db.js';
 import { router } from './routes.js';
+import { verifyEmailProvider } from './mailer.js';
 
 const app = express();
 if (config.trustProxy) app.set('trust proxy', 1);
@@ -41,6 +42,15 @@ app.use((error, _req, res, _next) => {
 const server = app.listen(config.PORT, () => {
   console.log(`Ecosystem Auth listening on ${config.PORT} (${config.NODE_ENV})`);
 });
+
+void verifyEmailProvider()
+  .then(result => console.info('Email provider verification:', result))
+  .catch(error => console.error('Email provider verification failed:', {
+    code: error.code,
+    httpStatus: error.httpStatus,
+    apiCode: error.apiCode,
+    message: error.message
+  }));
 
 async function shutdown(signal) {
   console.log(`${signal} received. Shutting down...`);
