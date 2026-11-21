@@ -66,23 +66,22 @@ async function makeSession(userId, res) {
 
 router.get('/health', async (_req, res) => {
   await pool.query('SELECT 1');
-  const sandboxMode = config.UNISENDER_USE_SANDBOX === 'true';
-  const hasApiKey = Boolean(config.UNISENDER_API_KEY);
-  const hasSender = Boolean(config.UNISENDER_FROM_EMAIL);
-  const emailDeliveryConfigured = hasApiKey && (hasSender || sandboxMode);
-  const emailDeliveryNote = !hasApiKey
-    ? 'missing_api_key'
-    : (!hasSender && !sandboxMode
-      ? 'missing_verified_sender_email'
-      : (sandboxMode ? 'sandbox_only_confirmed_recipients' : 'production_sender_domain_must_be_verified'));
+  const hasCredentials = Boolean(config.SMTP_USER && config.SMTP_PASSWORD);
+  const hasSender = Boolean(config.SMTP_FROM_EMAIL);
+  const emailDeliveryConfigured = hasCredentials && hasSender;
+  const emailDeliveryNote = !hasCredentials
+    ? 'missing_smtp_credentials'
+    : (!hasSender ? 'missing_sender_email' : 'smtp_configuration_present');
   res.json({
     ok: true,
     service: 'ecosystem-auth',
     database: 'connected',
-    emailProvider: 'unisender_go_api',
+    emailProvider: 'yandex_smtp',
     emailDeliveryConfigured,
-    emailDeliveryMode: sandboxMode ? 'sandbox' : 'production',
+    emailDeliveryMode: 'smtp',
     emailDeliveryNote,
+    emailSmtpHost: config.SMTP_HOST,
+    emailSmtpPort: config.SMTP_PORT,
     oauthClients: config.clients.map(client => client.clientId),
     emailCodeTtlMinutes: codeTtlMinutes
   });
@@ -145,11 +144,11 @@ router.post('/v1/auth/register', requireSameOrigin, async (req, res) => {
     await sendCodeEmail({ to: email, code, purpose: 'verify_email' });
   } catch (error) {
     console.error('Registration email delivery failed:', {
-      code: error.code, httpStatus: error.httpStatus, apiCode: error.apiCode, message: error.message
+      code: error.code, httpStatus: error.httpStatus, smtpResponseCode: error.smtpResponseCode, message: error.message
     });
     return res.status(503).json({
       error: 'email_delivery_unavailable',
-      message: 'Аккаунт создан, но письмо не отправлено. Проверьте API-ключ UniSender Go и подтверждённый домен отправителя.'
+      message: 'Аккаунт создан, но письмо не отправлено. Проверьте настройки Яндекс SMTP и пароль приложения.'
     });
   }
   return res.status(201).json({ ok: true, message: 'Проверьте почту и введите код подтверждения.' });
@@ -172,7 +171,7 @@ router.post('/v1/auth/send-login-code', requireSameOrigin, async (req, res) => {
       await sendCodeEmail({ to: email, code, purpose: 'login' });
     } catch (error) {
       console.error('Login code email delivery failed:', {
-        code: error.code, httpStatus: error.httpStatus, apiCode: error.apiCode, message: error.message
+        code: error.code, httpStatus: error.httpStatus, smtpResponseCode: error.smtpResponseCode, message: error.message
       });
       return res.status(503).json({
         error: 'email_delivery_unavailable',
@@ -218,18 +217,18 @@ router.post('/v1/auth/resend-verification', requireSameOrigin, async (req, res) 
   const code = await createEmailToken(user.rows[0].id, 'verify_email');
   try {
     const info = await sendCodeEmail({ to: email, code, purpose: 'verify_email' });
-    console.info('Verification email accepted by Unisender Go API:', {
+    console.info('Verification email accepted by Yandex SMTP:', {
       messageId: info.messageId,
       acceptedCount: info.accepted?.length ?? 0,
       rejectedCount: info.rejected?.length ?? 0
     });
   } catch (error) {
     console.error('Verification email resend failed:', {
-      code: error.code, httpStatus: error.httpStatus, apiCode: error.apiCode, message: error.message
+      code: error.code, httpStatus: error.httpStatus, smtpResponseCode: error.smtpResponseCode, message: error.message
     });
     return res.status(503).json({
       error: 'email_delivery_unavailable',
-      message: 'Сервер не смог отправить письмо. Проверьте API-ключ UniSender Go и подтверждённый домен отправителя.'
+      message: 'Сервер не смог отправить письмо через Яндекс. Проверьте SMTP-настройки и пароль приложения.'
     });
   }
   return res.json({ ok: true, message: 'Код отправлен. Проверьте Входящие и Спам.' });
