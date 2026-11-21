@@ -10,11 +10,19 @@ function createDeliveryError(message, { code, smtpResponseCode, cause } = {}) {
   return error;
 }
 
+function getSenderAddress() {
+  if (config.SMTP_FROM_EMAIL) return config.SMTP_FROM_EMAIL;
+  if (config.SMTP_USER.includes('@')) return config.SMTP_USER;
+  if (config.SMTP_HOST === 'smtp.yandex.ru') return config.SMTP_USER + '@yandex.ru';
+  throw createDeliveryError('SMTP_FROM_EMAIL is required for this SMTP host.', {
+    code: 'SMTP_SENDER_NOT_CONFIGURED'
+  });
+}
+
 function getTransporter() {
   const missing = [];
   if (!config.SMTP_USER) missing.push('SMTP_USER');
   if (!config.SMTP_PASSWORD) missing.push('SMTP_PASSWORD');
-  if (!config.SMTP_FROM_EMAIL) missing.push('SMTP_FROM_EMAIL');
 
   if (missing.length) {
     throw createDeliveryError(
@@ -45,6 +53,7 @@ function getTransporter() {
 }
 
 export async function verifyEmailProvider() {
+  const senderAddress = getSenderAddress();
   const transport = getTransporter();
   try {
     await transport.verify();
@@ -121,7 +130,7 @@ export async function sendCodeEmail({ to, code, purpose }) {
     const info = await getTransporter().sendMail({
       from: {
         name: config.SMTP_FROM_NAME,
-        address: config.SMTP_FROM_EMAIL
+        address: getSenderAddress()
       },
       to,
       subject,
