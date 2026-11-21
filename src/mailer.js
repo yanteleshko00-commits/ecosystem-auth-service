@@ -53,7 +53,7 @@ function getTransporter() {
 }
 
 export async function verifyEmailProvider() {
-  const senderAddress = getSenderAddress();
+  getSenderAddress();
   const transport = getTransporter();
   try {
     await transport.verify();
