@@ -8,10 +8,10 @@ function escapeHtml(value) {
 
 function getMissingEmailConfig() {
   const missing = [];
-  if (!config.SYNAPSEA_API_KEY) missing.push('SYNAPSEA_API_KEY');
-  if (!config.SYNAPSEA_FROM_EMAIL) missing.push('SYNAPSEA_FROM_EMAIL');
+  if (!config.UNISENDER_API_KEY) missing.push('UNISENDER_API_KEY');
+  if (!config.UNISENDER_FROM_EMAIL) missing.push('UNISENDER_FROM_EMAIL');
   if (missing.length) {
-    throw new Error('Synapsea Mail email delivery is not configured. Missing: ' + missing.join(', '));
+    throw new Error('UniSender Go email delivery is not configured. Missing: ' + missing.join(', '));
   }
 }
 
@@ -56,57 +56,65 @@ export async function sendCodeEmail({ to, code, purpose }) {
 
   let response;
   try {
-    response = await fetch(config.SYNAPSEA_API_URL, {
+    response = await fetch(config.UNISENDER_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'Authorization': 'Bearer ' + config.SYNAPSEA_API_KEY
+        'X-API-KEY': config.UNISENDER_API_KEY
       },
       body: JSON.stringify({
-        from: config.SYNAPSEA_FROM_EMAIL,
-        to,
-        subject,
-        html,
-        text,
-        tags: ['nexora-id', 'authentication']
+        message: {
+          recipients: [{ email: to }],
+          subject,
+          from_email: config.UNISENDER_FROM_EMAIL,
+          from_name: config.UNISENDER_FROM_NAME,
+          body: { html, plaintext: text },
+          tags: ['nexora-id', 'authentication'],
+          skip_unsubscribe: 1,
+          track_links: 0,
+          track_read: 0
+        }
       }),
       signal: controller.signal
     });
   } catch (error) {
     if (error?.name === 'AbortError') {
-      const timeoutError = new Error('Synapsea Mail API request timed out.');
-      timeoutError.code = 'SYNAPSEA_TIMEOUT';
+      const timeoutError = new Error('UniSender Go API request timed out.');
+      timeoutError.code = 'UNISENDER_TIMEOUT';
       throw timeoutError;
     }
-    const networkError = new Error('Could not connect to Synapsea Mail API.');
-    networkError.code = 'SYNAPSEA_NETWORK_ERROR';
+    const networkError = new Error('Could not connect to UniSender Go API.');
+    networkError.code = 'UNISENDER_NETWORK_ERROR';
     throw networkError;
   } finally {
     clearTimeout(timeout);
   }
 
-  let result;
+  let result = {};
   try {
     result = await response.json();
   } catch {
-    const parseError = new Error('Synapsea Mail API returned an invalid response.');
+    const parseError = new Error('UniSender Go API returned an invalid response.');
     parseError.httpStatus = response.status;
     throw parseError;
   }
 
-  if (!response.ok || !result?.id) {
-    const providerMessage = typeof result?.error === 'string' ? result.error.slice(0, 160) : 'Request rejected';
-    const apiError = new Error('Synapsea Mail API rejected the request (HTTP ' + response.status + '): ' + providerMessage);
+  const rejected = result?.failed_emails && Object.prototype.hasOwnProperty.call(result.failed_emails, to);
+  if (!response.ok || result?.status !== 'success' || !result?.job_id || rejected) {
+    const providerMessage = typeof result?.message === 'string'
+      ? result.message.slice(0, 180)
+      : rejected ? String(result.failed_emails[to]).slice(0, 120) : 'Request rejected';
+    const apiError = new Error('UniSender Go API rejected the request (HTTP ' + response.status + '): ' + providerMessage);
     apiError.httpStatus = response.status;
-    if (typeof result?.code === 'string') apiError.apiCode = result.code.slice(0, 80);
+    if (result?.code !== undefined) apiError.apiCode = String(result.code).slice(0, 80);
     throw apiError;
   }
 
   return {
-    messageId: result.id,
-    status: result.status || 'queued',
-    accepted: [to],
+    messageId: String(result.job_id),
+    status: 'queued',
+    accepted: Array.isArray(result.emails) && result.emails.length ? result.emails : [to],
     rejected: []
   };
 }
