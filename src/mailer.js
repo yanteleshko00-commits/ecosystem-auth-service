@@ -1,30 +1,43 @@
-import nodemailer from 'nodemailer';
+import { randomUUID } from 'node:crypto';
 import { config } from './config.js';
 
-function getTransport() {
+function createDeliveryError(message, { code, httpStatus, apiCode } = {}) {
+  const error = new Error(message);
+  if (code) error.code = code;
+  if (httpStatus !== undefined) error.httpStatus = httpStatus;
+  if (apiCode !== undefined) error.apiCode = apiCode;
+  return error;
+}
+
+function getApiSettings() {
   const missing = [];
-  if (!config.SMTP_HOST) missing.push('SMTP_HOST');
-  if (!config.SMTP_USER) missing.push('SMTP_USER');
-  if (!config.SMTP_PASSWORD) missing.push('SMTP_PASSWORD');
-  if (!config.SMTP_FROM) missing.push('SMTP_FROM');
+  if (!config.UNISENDER_API_KEY) missing.push('UNISENDER_API_KEY');
+  if (!config.UNISENDER_FROM_EMAIL) missing.push('UNISENDER_FROM_EMAIL');
   if (missing.length) {
-    throw new Error('Yandex SMTP email delivery is not configured. Missing: ' + missing.join(', '));
+    throw createDeliveryError(
+      'UniSender Go API is not configured. Missing: ' + missing.join(', '),
+      { code: 'UNISENDER_NOT_CONFIGURED' }
+    );
   }
-  return nodemailer.createTransport({
-    host: config.SMTP_HOST,
-    port: config.SMTP_PORT,
-    secure: config.SMTP_SECURE === 'true',
-    auth: { user: config.SMTP_USER, pass: config.SMTP_PASSWORD },
-    connectionTimeout: 12000,
-    greetingTimeout: 12000,
-    socketTimeout: 12000
-  });
+
+  let baseUrl = config.UNISENDER_API_URL;
+  while (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+
+  return {
+    endpoint: baseUrl + '/email/send.json',
+    apiKey: config.UNISENDER_API_KEY,
+    fromEmail: config.UNISENDER_FROM_EMAIL,
+    fromName: config.UNISENDER_FROM_NAME
+  };
 }
 
 function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, character => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  })[character]);
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 export async function sendCodeEmail({ to, code, purpose }) {
@@ -40,9 +53,22 @@ export async function sendCodeEmail({ to, code, purpose }) {
     ? 'Введите этот код на странице входа в NEXORA ID.'
     : isReset ? 'Введите этот код, чтобы сменить пароль.'
     : 'Введите этот код, чтобы подтвердить адрес электронной почты.';
-  const loginUrl = config.AUTH_PUBLIC_URL.replace(/\/$/, '') + '/login';
-  const text = heading + '\n\nКод: ' + code + '\n\n' + action +
-    '\nКод действует 15 минут. Никому его не сообщайте.\n\nNEXORA ID — один аккаунт для сервисов экосистемы.';
+
+  const authBaseUrl = config.AUTH_PUBLIC_URL.endsWith('/')
+    ? config.AUTH_PUBLIC_URL.slice(0, -1)
+    : config.AUTH_PUBLIC_URL;
+  const loginUrl = authBaseUrl + '/login';
+  const text = [
+    heading,
+    '',
+    'Код: ' + code,
+    '',
+    action,
+    'Код действует 15 минут. Никому его не сообщайте.',
+    '',
+    'NEXORA ID — один аккаунт для сервисов экосистемы.'
+  ].join('\n');
+
   const html = [
     '<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>',
     '<body style="margin:0;padding:28px 14px;background:#f3f5f9;color:#172033;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif">',
@@ -58,17 +84,95 @@ export async function sendCodeEmail({ to, code, purpose }) {
     '<div style="padding:18px 30px 24px;border-top:1px solid #edf0f5;color:#8a95a7;font-size:12px;line-height:1.55">Если вы не запрашивали этот код, просто проигнорируйте письмо.<br>NEXORA ID · Единый аккаунт экосистемы</div>',
     '</div></body></html>'
   ].join('');
-  const transporter = getTransport();
+
+  const settings = getApiSettings();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.UNISENDER_TIMEOUT_MS);
+  timeout.unref?.();
+
   try {
-    const info = await transporter.sendMail({
-      from: config.SMTP_FROM,
-      to,
-      subject,
-      text,
-      html
+    const response = await fetch(settings.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-API-KEY': settings.apiKey
+      },
+      body: JSON.stringify({
+        message: {
+          recipients: [{ email: to }],
+          subject,
+          from_email: settings.fromEmail,
+          from_name: settings.fromName,
+          body: { html, plaintext: text },
+          global_language: 'ru',
+          template_engine: 'none',
+          idempotence_key: randomUUID()
+        }
+      }),
+      signal: controller.signal
     });
-    return { messageId: info.messageId, status: 'sent', accepted: info.accepted, rejected: info.rejected };
+
+    const responseText = await response.text();
+    let payload = {};
+    try {
+      payload = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      throw createDeliveryError('UniSender Go API returned an invalid JSON response.', {
+        code: 'UNISENDER_INVALID_RESPONSE',
+        httpStatus: response.status
+      });
+    }
+
+    if (!response.ok || payload.status !== 'success') {
+      throw createDeliveryError(
+        payload.message || 'UniSender Go API rejected the email request.',
+        {
+          code: 'UNISENDER_API_ERROR',
+          httpStatus: response.status,
+          apiCode: payload.code
+        }
+      );
+    }
+
+    const rejected = payload.failed_emails && typeof payload.failed_emails === 'object'
+      ? payload.failed_emails : {};
+    const rejectedAddress = Object.keys(rejected).find(
+      address => address.toLowerCase() === String(to).toLowerCase()
+    );
+    if (rejectedAddress) {
+      throw createDeliveryError('UniSender Go rejected recipient: ' + rejected[rejectedAddress], {
+        code: 'UNISENDER_RECIPIENT_REJECTED',
+        httpStatus: response.status,
+        apiCode: payload.code
+      });
+    }
+
+    const accepted = Array.isArray(payload.emails) ? payload.emails : [to];
+    if (Array.isArray(payload.emails) && !payload.emails.some(
+      address => String(address).toLowerCase() === String(to).toLowerCase()
+    )) {
+      throw createDeliveryError('UniSender Go did not confirm acceptance of the recipient.', {
+        code: 'UNISENDER_RECIPIENT_NOT_ACCEPTED',
+        httpStatus: response.status,
+        apiCode: payload.code
+      });
+    }
+
+    return {
+      messageId: payload.job_id ?? null,
+      status: 'accepted',
+      accepted,
+      rejected: Object.keys(rejected)
+    };
+  } catch (error) {
+    if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+      throw createDeliveryError('UniSender Go API request timed out.', {
+        code: 'UNISENDER_TIMEOUT'
+      });
+    }
+    throw error;
   } finally {
-    transporter.close();
+    clearTimeout(timeout);
   }
 }
