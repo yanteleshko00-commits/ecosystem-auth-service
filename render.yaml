@@ -24,26 +24,18 @@ services:
         value: "true"
       - key: TOKEN_PEPPER
         generateValue: true
-      - key: UNISENDER_API_KEY
-        sync: false
-      - key: UNISENDER_API_URL
-        value: https://goapi.unisender.ru/ru/transactional/api/v1/email/send.json
-      - key: UNISENDER_FROM_EMAIL
-        sync: false
-      - key: UNISENDER_FROM_NAME
-        value: NEXORA ID
       - key: SMTP_HOST
-        sync: false
+        value: smtp.yandex.ru
       - key: SMTP_PORT
-        value: "587"
+        value: "465"
       - key: SMTP_SECURE
-        value: "false"
+        value: "true"
       - key: SMTP_USER
-        sync: false
+        value: yateleshko@yandex.ru
       - key: SMTP_PASSWORD
         sync: false
       - key: SMTP_FROM
-        sync: false
+        value: NEXORA ID <yateleshko@yandex.ru>
       - key: OAUTH_CLIENTS_JSON
         sync: false
       - key: PROJECTS_OAUTH_CLIENT_SECRET
