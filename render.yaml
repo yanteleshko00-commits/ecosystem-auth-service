@@ -43,6 +43,12 @@ services:
         value: "15000"
       - key: OAUTH_CLIENTS_JSON
         sync: false
+      - key: NEXORA_CLIENT_SECRET
+        sync: false
+      - key: NEXORA_SERVICE_API_KEY
+        sync: false
+      - key: NEXORA_REDIRECT_URI
+        value: https://nexora-lobby.onrender.com/auth/callback
       - key: PROJECTS_OAUTH_CLIENT_SECRET
         sync: false
       - key: PROJECTS_SERVICE_API_KEY
