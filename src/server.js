@@ -1,5 +1,6 @@
 import 'express-async-errors';
 import express from 'express';
+import { fileURLToPath } from 'node:url';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
@@ -30,7 +31,7 @@ app.use(express.urlencoded({ extended: false, limit: '20kb' }));
 app.use(cookieParser());
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: 'draft-7', legacyHeaders: false }));
 app.use('/v1/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 12, standardHeaders: 'draft-7', legacyHeaders: false }));
-app.use(express.static(new URL('../public', import.meta.url).pathname, { index: false, maxAge: config.NODE_ENV === 'production' ? '1h' : 0 }));
+app.use(express.static(fileURLToPath(new URL('../public', import.meta.url)), { index: false, maxAge: config.NODE_ENV === 'production' ? '1h' : 0 }));
 app.use(router);
 app.get('/', (_req, res) => res.redirect('/login'));
 app.use((req, res) => res.status(404).json({ error: 'not_found' }));
