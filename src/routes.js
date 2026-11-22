@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import express from 'express';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { config } from './config.js';
 import { pool, transaction } from './db.js';
@@ -279,7 +280,7 @@ router.get('/v1/me', requireUser, (req, res) => {
   const { id, name, email, free_requests_used, paid_credits } = req.user;
   return res.json({
     user: { id, name, email },
-    usage: { freeRequestsUsed: free_requests_used, freeRequestsRemaining: Math.max(0, 3 - free_requests_used), paidCredits },
+    usage: { freeRequestsUsed: free_requests_used, freeRequestsRemaining: Math.max(0, 3 - free_requests_used), paidCredits: paid_credits },
     packages
   });
 });
@@ -301,7 +302,17 @@ router.post('/v1/auth/forgot-password', requireSameOrigin, async (req, res) => {
   const result = await pool.query('SELECT id FROM users WHERE email = $1 AND email_verified_at IS NOT NULL', [email]);
   if (result.rowCount) {
     const code = await createEmailToken(result.rows[0].id, 'reset_password');
-    await sendCodeEmail({ to: email, code, purpose: 'reset_password' });
+    try {
+      await sendCodeEmail({ to: email, code, purpose: 'reset_password' });
+    } catch (error) {
+      console.error('Password reset email delivery failed:', {
+        code: error.code, httpStatus: error.httpStatus, smtpResponseCode: error.smtpResponseCode, message: error.message
+      });
+      return res.status(503).json({
+        error: 'email_delivery_unavailable',
+        message: 'Не удалось отправить письмо. Попробуйте позже.'
+      });
+    }
   }
   return res.json({ ok: true, message: 'Если аккаунт существует, на него отправлен код восстановления.' });
 });
@@ -455,7 +466,9 @@ router.post('/v1/internal/usage/reserve', requireService, async (req, res) => {
 router.post('/v1/internal/usage/:reservationId/finalize', requireService, async (req, res) => {
   const schema = z.object({ outcome: z.enum(['success', 'failure']) });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'invalid_finalization' });
+  if (!parsed.success || !z.string().uuid().safeParse(req.params.reservationId).success) {
+    return res.status(400).json({ error: 'invalid_finalization' });
+  }
   const result = await transaction(async db => {
     const eventResult = await db.query(
       `SELECT id, user_id, bucket, status FROM usage_events
@@ -524,6 +537,6 @@ router.get('/logout', async (req, res) => {
   return res.redirect(302, target);
 });
 
-router.get('/login', (_req, res) => res.sendFile(new URL('../public/login.html', import.meta.url).pathname));
-router.get('/assets/auth.js', (_req, res) => res.sendFile(new URL('../public/auth.js', import.meta.url).pathname));
-router.get('/assets/auth.css', (_req, res) => res.sendFile(new URL('../public/auth.css', import.meta.url).pathname));
+router.get('/login', (_req, res) => res.sendFile(fileURLToPath(new URL('../public/login.html', import.meta.url))));
+router.get('/assets/auth.js', (_req, res) => res.sendFile(fileURLToPath(new URL('../public/auth.js', import.meta.url))));
+router.get('/assets/auth.css', (_req, res) => res.sendFile(fileURLToPath(new URL('../public/auth.css', import.meta.url))));

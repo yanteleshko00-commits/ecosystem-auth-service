@@ -1,7 +1,7 @@
 export const packages = Object.freeze({
-  mini: Object.freeze({ priceRub: 200, credits: 5 }),
-  pro: Object.freeze({ priceRub: 500, credits: 10 }),
-  max: Object.freeze({ priceRub: 1000, credits: 30 })
+  mini: Object.freeze({ priceRub: 200, credits: 3 }),
+  pro: Object.freeze({ priceRub: 500, credits: 5 }),
+  max: Object.freeze({ priceRub: 1000, credits: 10 })
 });
 
 export function resolveUsageBucket({ freeRequestsUsed, paidCredits }) {
