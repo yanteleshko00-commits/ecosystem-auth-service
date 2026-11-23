@@ -77,7 +77,7 @@ async function sendViaBrevo({ to, subject, html, text }) {
       body: JSON.stringify({
         sender: { name: config.SMTP_FROM_NAME, email: getBrevoSender() },
         to: [{ email: to }],
-        replyTo: { email: 'yateleshko@yandex.ru', name: 'NEXORA ID' },
+        replyTo: { email: config.SMTP_FROM_EMAIL || config.SMTP_USER || getBrevoSender(), name: 'NEXORA ID' },
         subject, htmlContent: html, textContent: text
       }),
       signal: controller.signal
