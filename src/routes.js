@@ -16,7 +16,7 @@ import { packages, resolveUsageBucket } from './policy.js';
 export const router = express.Router();
 const codeTtlMinutes = 15;
 const sessionTtlSeconds = config.SESSION_TTL_DAYS * 86400;
-const registerSchema = z.object({ name: z.string().trim().min(1).max(60), email: z.string().email().max(254), password: z.string().min(6).max(128) });
+const registerSchema = z.object({ name: z.string().trim().min(1).max(60), email: z.string().email().max(254), password: z.string().min(8).max(128) });
 const loginSchema = z.object({ email: z.string().email().max(254), password: z.string().min(6).max(128) });
 const emailSchema = z.object({ email: z.string().email().max(254) });
 const codeSchema = z.object({ email: z.string().email().max(254), code: z.string().regex(/^\d{6}$/) });
@@ -152,7 +152,7 @@ router.post('/v1/auth/register', requireSameOrigin, async (req, res) => {
     });
     return res.status(503).json({
       error: 'email_delivery_unavailable',
-      message: 'Аккаунт создан, но письмо не отправлено. Проверьте настройки Яндекс SMTP и пароль приложения.'
+      message: 'Аккаунт создан, но код пока не отправлен. Повторите отправку кода позже — повторная регистрация не нужна.'
     });
   }
   return res.status(201).json({ ok: true, message: 'Проверьте почту и введите код подтверждения.' });
