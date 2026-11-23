@@ -52,7 +52,64 @@ function getTransporter() {
   return transporter;
 }
 
+function brevoEnabled() {
+  return Boolean(config.BREVO_API_KEY);
+}
+
+function getBrevoSender() {
+  const email = config.BREVO_FROM_EMAIL || config.SMTP_FROM_EMAIL || '';
+  if (!email) throw createDeliveryError('BREVO_FROM_EMAIL is required for HTTPS email delivery.', { code: 'BREVO_SENDER_NOT_CONFIGURED' });
+  return email;
+}
+
+async function sendViaBrevo({ to, subject, html, text }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  let response;
+  try {
+    response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': config.BREVO_API_KEY,
+        'content-type': 'application/json',
+        accept: 'application/json'
+      },
+      body: JSON.stringify({
+        sender: { name: config.SMTP_FROM_NAME, email: getBrevoSender() },
+        to: [{ email: to }],
+        replyTo: { email: 'yateleshko@yandex.ru', name: 'NEXORA ID' },
+        subject, htmlContent: html, textContent: text
+      }),
+      signal: controller.signal
+    });
+  } catch (error) {
+    throw createDeliveryError('HTTPS email provider is unreachable.', {
+      code: error.name === 'AbortError' ? 'BREVO_TIMEOUT' : 'BREVO_CONNECTION_FAILED',
+      cause: error
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!response.ok) {
+    console.error('Brevo email request failed:', { status: response.status });
+    throw createDeliveryError('HTTPS email provider rejected the message.', {
+      code: 'BREVO_HTTP_' + response.status
+    });
+  }
+  const result = await response.json().catch(() => ({}));
+  if (!result.messageId && !Array.isArray(result.messageIds)) {
+    throw createDeliveryError('HTTPS email provider did not confirm acceptance.', {
+      code: 'BREVO_NO_MESSAGE_ID'
+    });
+  }
+  return { status: 'accepted', messageId: result.messageId ?? result.messageIds?.[0] ?? null };
+}
+
 export async function verifyEmailProvider() {
+  if (brevoEnabled()) {
+    getBrevoSender();
+    return { status: 'configured', mode: 'https_api', provider: 'brevo' };
+  }
   getSenderAddress();
   const transport = getTransporter();
   try {
@@ -133,6 +190,8 @@ export async function sendCodeEmail({ to, code, purpose }) {
     '<div style="padding:18px 30px 24px;border-top:1px solid #edf0f5;color:#8a95a7;font-size:12px;line-height:1.55">Если вы не запрашивали этот код, просто проигнорируйте письмо.<br>NEXORA ID · Единый аккаунт экосистемы</div>',
     '</div></body></html>'
   ].join('');
+
+  if (brevoEnabled()) return sendViaBrevo({ to, subject, html, text });
 
   try {
     const info = await getTransporter().sendMail({
