@@ -64,6 +64,14 @@ export async function verifyEmailProvider() {
       port: config.SMTP_PORT
     };
   } catch (error) {
+    console.error('SMTP connectivity diagnostics:', {
+      code: error.code || 'SMTP_VERIFY_FAILED',
+      command: error.command || null,
+      smtpResponseCode: error.responseCode ?? null,
+      reason: error.code === 'ETIMEDOUT' ? 'connection_timeout' :
+        error.code === 'EAUTH' ? 'smtp_authentication_rejected' :
+        error.code === 'ECONNREFUSED' ? 'connection_refused' : 'smtp_connection_error'
+    });
     throw createDeliveryError('Yandex SMTP connection verification failed.', {
       code: error.code || 'SMTP_VERIFY_FAILED',
       smtpResponseCode: error.responseCode,
