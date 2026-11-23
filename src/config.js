@@ -18,6 +18,8 @@ const EnvSchema = z.object({
   TOKEN_PEPPER: z.string().min(32),
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
   COOKIE_SECURE: z.string().default('false'),
+  BREVO_API_KEY: z.string().trim().default(''),
+  BREVO_FROM_EMAIL: z.string().email().or(z.literal('')).default(''),
   SMTP_HOST: z.string().trim().min(1).default('smtp.yandex.ru'),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(465),
   SMTP_SECURE: z.string().default('true'),
