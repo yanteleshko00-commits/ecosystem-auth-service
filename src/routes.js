@@ -72,17 +72,18 @@ router.get('/health', async (_req, res) => {
     config.SMTP_FROM_EMAIL || config.SMTP_USER.includes('@') ||
     (config.SMTP_HOST === 'smtp.yandex.ru' && config.SMTP_USER)
   );
-  const emailDeliveryConfigured = hasCredentials && hasSender;
-  const emailDeliveryNote = !hasCredentials
-    ? 'missing_smtp_credentials'
-    : (!hasSender ? 'missing_sender_email' : 'smtp_configuration_present');
+  const brevoConfigured = Boolean(config.BREVO_API_KEY && (config.BREVO_FROM_EMAIL || config.SMTP_FROM_EMAIL));
+  const emailDeliveryConfigured = brevoConfigured || (hasCredentials && hasSender);
+  const emailDeliveryNote = brevoConfigured ? 'https_api_configuration_present' :
+    (!hasCredentials ? 'missing_smtp_credentials' :
+    (!hasSender ? 'missing_sender_email' : 'smtp_configuration_present'));
   res.json({
     ok: true,
     service: 'ecosystem-auth',
     database: 'connected',
-    emailProvider: 'yandex_smtp',
+    emailProvider: brevoConfigured ? 'brevo' : 'yandex_smtp',
     emailDeliveryConfigured,
-    emailDeliveryMode: 'smtp',
+    emailDeliveryMode: brevoConfigured ? 'https_api' : 'smtp',
     emailDeliveryNote,
     emailSmtpHost: config.SMTP_HOST,
     emailSmtpPort: config.SMTP_PORT,
@@ -221,7 +222,7 @@ router.post('/v1/auth/resend-verification', requireSameOrigin, async (req, res) 
   const code = await createEmailToken(user.rows[0].id, 'verify_email');
   try {
     const info = await sendCodeEmail({ to: email, code, purpose: 'verify_email' });
-    console.info('Verification email accepted by Yandex SMTP:', {
+    console.info('Verification email accepted by provider:', {
       messageId: info.messageId,
       acceptedCount: info.accepted?.length ?? 0,
       rejectedCount: info.rejected?.length ?? 0
