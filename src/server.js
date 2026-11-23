@@ -30,7 +30,26 @@ app.use(express.json({ limit: '20kb' }));
 app.use(express.urlencoded({ extended: false, limit: '20kb' }));
 app.use(cookieParser());
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: 'draft-7', legacyHeaders: false }));
-app.use('/v1/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 12, standardHeaders: 'draft-7', legacyHeaders: false }));
+// The NEXORA lobby proxies auth requests from one server IP. Bucket requests
+// by normalized email for email-based auth endpoints so users do not share
+// one 12-request allowance. Keep the global limiter as a second guard.
+app.use('/v1/auth', rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: req => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    if (email && email.length <= 254 && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+      return 'email:' + email;
+    }
+    return 'ip:' + req.ip;
+  },
+  handler: (_req, res) => res.status(429).json({
+    error: 'auth_rate_limited',
+    message: 'Слишком много попыток. Подождите 15 минут и попробуйте снова.'
+  })
+}));
 app.use(express.static(fileURLToPath(new URL('../public', import.meta.url)), { index: false, maxAge: config.NODE_ENV === 'production' ? '1h' : 0 }));
 app.use(router);
 app.get('/', (_req, res) => res.redirect('/login'));
