@@ -576,3 +576,13 @@ router.post('/v1/console/users', consoleOwner, async (req,res) => {
   if(!result) return res.status(404).json({error:'user_not_found'});
   res.json({user:result});
 });
+
+router.get('/v1/console/usage-history', consoleOwner, async (_req,res) => {
+  const data=await pool.query(
+    "SELECT (created_at AT TIME ZONE 'UTC')::date::text AS day, service_id, status, COUNT(*)::int AS count, COUNT(DISTINCT user_id)::int AS accounts FROM usage_events WHERE created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' - INTERVAL '29 days' GROUP BY 1,2,3 ORDER BY 1 DESC,2,3"
+  );
+  const totals=await pool.query(
+    "SELECT service_id, COUNT(*)::int AS requests, COUNT(*) FILTER (WHERE status='succeeded')::int AS succeeded, COUNT(*) FILTER (WHERE status='refunded')::int AS refunded, COUNT(*) FILTER (WHERE status='reserved')::int AS reserved, COUNT(DISTINCT user_id)::int AS accounts FROM usage_events WHERE created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' - INTERVAL '29 days' GROUP BY service_id ORDER BY requests DESC"
+  );
+  res.json({scope:'registered_usage_events',days:30,timezone:'UTC',daily:data.rows,services:totals.rows});
+});
