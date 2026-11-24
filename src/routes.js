@@ -20,7 +20,7 @@ const registerSchema = z.object({ name: z.string().trim().min(1).max(60), email:
 const loginSchema = z.object({ email: z.string().email().max(254), password: z.string().min(6).max(128) });
 const emailSchema = z.object({ email: z.string().email().max(254) });
 const codeSchema = z.object({ email: z.string().email().max(254), code: z.string().regex(/^\d{6}$/) });
-const passwordSchema = z.string().min(6).max(128);
+const passwordSchema = z.string().min(8).max(128);
 
 function issueCookieSession(res, token) {
   setSessionCookie(res, token, sessionTtlSeconds);
@@ -44,16 +44,18 @@ async function createEmailToken(userId, purpose) {
 
 async function consumeEmailToken(userId, code, purpose, db = pool) {
   const result = await db.query(
-    `UPDATE email_tokens SET used_at = NOW()
+    `UPDATE email_tokens
+        SET failed_attempts = failed_attempts + CASE WHEN token_hash = $2 THEN 0 ELSE 1 END,
+            used_at = CASE WHEN token_hash = $2 OR failed_attempts >= 4 THEN NOW() ELSE used_at END
       WHERE id = (
         SELECT id FROM email_tokens
-         WHERE user_id = $1 AND token_hash = $2 AND purpose = $3
-           AND used_at IS NULL AND expires_at > NOW()
+         WHERE user_id = $1 AND purpose = $3 AND used_at IS NULL
+           AND expires_at > NOW() AND failed_attempts < 5
          ORDER BY created_at DESC LIMIT 1 FOR UPDATE
-      ) RETURNING id`,
+      ) RETURNING (token_hash = $2) AS matched`,
     [userId, sha256(code), purpose]
   );
-  return result.rowCount === 1;
+  return result.rows[0]?.matched === true;
 }
 
 async function makeSession(userId, res) {
@@ -85,9 +87,6 @@ router.get('/health', async (_req, res) => {
     emailDeliveryConfigured,
     emailDeliveryMode: brevoConfigured ? 'https_api' : 'smtp',
     emailDeliveryNote,
-    emailSmtpHost: config.SMTP_HOST,
-    emailSmtpPort: config.SMTP_PORT,
-    oauthClients: config.clients.map(client => client.clientId),
     emailCodeTtlMinutes: codeTtlMinutes
   });
 });
@@ -104,7 +103,7 @@ router.post('/v1/auth/register', requireSameOrigin, async (req, res) => {
   const email = normalizeEmail(parsed.data.email);
   const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
   if (existing.rowCount) {
-    return res.status(409).json({ error: 'account_already_exists', message: 'Аккаунт с таким email уже зарегистрирован. Войдите или запросите восстановление пароля.' });
+    return res.status(201).json({ ok: true, message: 'Если регистрация доступна, проверьте почту и введите код подтверждения.' });
   }
 
   // A long-lived, HttpOnly device cookie groups registrations from this browser.
@@ -156,7 +155,7 @@ router.post('/v1/auth/register', requireSameOrigin, async (req, res) => {
       message: 'Аккаунт создан, но код пока не отправлен. Повторите отправку кода позже — повторная регистрация не нужна.'
     });
   }
-  return res.status(201).json({ ok: true, message: 'Проверьте почту и введите код подтверждения.' });
+  return res.status(201).json({ ok: true, message: 'Если регистрация доступна, проверьте почту и введите код подтверждения.' });
 });
 
 router.post('/v1/auth/send-login-code', requireSameOrigin, async (req, res) => {
@@ -367,9 +366,9 @@ router.get('/oauth/authorize', async (req, res) => {
   }
   const code = randomToken(32);
   await pool.query(
-    `INSERT INTO oauth_codes (code_hash, user_id, client_id, redirect_uri, code_challenge, expires_at)
-     VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '2 minutes')`,
-    [sha256(code), user.id, clientId, redirectUri, challenge]
+    `INSERT INTO oauth_codes (code_hash, user_id, client_id, redirect_uri, code_challenge, expires_at, session_id)
+     VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '2 minutes', $6)`,
+    [sha256(code), user.id, clientId, redirectUri, challenge, user.session_id]
   );
   const target = new URL(redirectUri);
   target.searchParams.set('code', code);
@@ -391,7 +390,7 @@ router.post('/oauth/token', express.urlencoded({ extended: false }), async (req,
   const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
   const result = await transaction(async db => {
     const found = await db.query(
-      `SELECT id, user_id, client_id, redirect_uri, code_challenge
+      `SELECT id, user_id, client_id, redirect_uri, code_challenge, session_id
          FROM oauth_codes WHERE code_hash = $1 AND expires_at > NOW() AND used_at IS NULL
          FOR UPDATE`, [sha256(body.code)]
     );
@@ -399,10 +398,13 @@ router.post('/oauth/token', express.urlencoded({ extended: false }), async (req,
     if (!authCode || authCode.client_id !== client.clientId || authCode.redirect_uri !== body.redirect_uri || !timingSafeEqualText(authCode.code_challenge, challenge)) return null;
     await db.query('UPDATE oauth_codes SET used_at = NOW() WHERE id = $1', [authCode.id]);
     const account = await db.query('SELECT id, name, email, free_requests_used, paid_credits, email_verified_at FROM users WHERE id = $1 AND NOT banned', [authCode.user_id]);
-    return account.rows[0] ?? null;
+    if (!account.rowCount || !authCode.session_id) return null;
+    const live = await db.query('SELECT id FROM sessions WHERE id = $1 AND user_id = $2 AND expires_at > NOW()', [authCode.session_id, authCode.user_id]);
+    return live.rowCount ? { ...account.rows[0], sessionId: authCode.session_id } : null;
   });
   if (!result) return res.status(400).json({ error: 'invalid_or_expired_authorization_code' });
   return res.json({
+    sessionId: result.sessionId,
     user: { id: result.id, name: result.name, email: result.email, emailVerified: Boolean(result.email_verified_at) },
     usage: { freeRequestsUsed: result.free_requests_used, freeRequestsRemaining: Math.max(0, 3 - result.free_requests_used), paidCredits: result.paid_credits }
   });
@@ -428,6 +430,21 @@ router.get('/v1/internal/users/:userId/summary', requireService, async (req, res
   });
 });
 
+// The projects client verifies the central session before any paid operation.
+router.post('/v1/internal/session/validate', requireService, async (req, res) => {
+  const parsed = z.object({ userId: z.string().uuid(), sessionId: z.string().uuid() }).safeParse(req.body);
+  if (!parsed.success) return res.status(401).json({ error: 'invalid_session' });
+  const { userId, sessionId } = parsed.data;
+  const result = await pool.query(
+    `SELECT u.id, u.name, u.email, u.free_requests_used, u.paid_credits
+       FROM sessions s JOIN users u ON u.id = s.user_id
+       WHERE s.id = $1 AND u.id = $2 AND s.expires_at > NOW()
+         AND NOT u.banned AND u.email_verified_at IS NOT NULL`, [sessionId, userId]);
+  if (!result.rowCount) return res.status(401).json({ error: 'invalid_session' });
+  const u = result.rows[0];
+  res.json({ user: { id: u.id, name: u.name, email: u.email },
+    usage: { freeRequestsUsed: u.free_requests_used, freeRequestsRemaining: Math.max(0, 3 - u.free_requests_used), paidCredits: u.paid_credits }, packages });
+});
 router.post('/v1/internal/usage/reserve', requireService, async (req, res) => {
   const schema = z.object({ userId: z.string().uuid(), idempotencyKey: z.string().min(8).max(128) });
   const parsed = schema.safeParse(req.body);

@@ -31,26 +31,25 @@ app.use(express.json({ limit: '20kb' }));
 app.use(express.urlencoded({ extended: false, limit: '20kb' }));
 app.use(cookieParser());
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: 'draft-7', legacyHeaders: false }));
-// The NEXORA lobby proxies auth requests from one server IP. Bucket requests
-// by normalized email for email-based auth endpoints so users do not share
-// one 12-request allowance. Keep the global limiter as a second guard.
-app.use('/v1/auth', rateLimit({
+// Independent per-address and per-email limits; email rotation cannot bypass the IP guard.
+const authLimitOptions = {
   windowMs: 15 * 60 * 1000,
-  limit: 20,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  keyGenerator: req => {
-    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-    if (email && email.length <= 254 && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
-      return 'email:' + email;
-    }
-    return 'ip:' + req.ip;
-  },
+  standardHeaders: 'draft-7', legacyHeaders: false,
   handler: (_req, res) => res.status(429).json({
     error: 'auth_rate_limited',
     message: 'Слишком много попыток. Подождите 15 минут и попробуйте снова.'
   })
+};
+app.use('/v1/auth', rateLimit({ ...authLimitOptions, limit: 100 }));
+app.use('/v1/auth', rateLimit({
+  ...authLimitOptions, limit: 20,
+  skip: req => !validRateEmail(req.body?.email),
+  keyGenerator: req => validRateEmail(req.body?.email)
 }));
+function validRateEmail(value) {
+  const email = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : '';
+}
 app.use((req,res,next)=>{if(!serveBrand(req,res,req.path,'NEXORA ID'))next();});
 app.use(express.static(fileURLToPath(new URL('../public', import.meta.url)), { index: false, maxAge: config.NODE_ENV === 'production' ? '1h' : 0 }));
 app.use(router);

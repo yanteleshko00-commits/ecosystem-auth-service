@@ -3,7 +3,7 @@ services:
     name: ecosystem-auth-service
     runtime: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm install && npm run check && npm test
     startCommand: npm run migrate && npm start
     healthCheckPath: /health
     autoDeploy: false

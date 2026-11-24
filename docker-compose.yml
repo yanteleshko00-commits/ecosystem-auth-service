@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ecosystem
-      POSTGRES_PASSWORD: change_this_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ecosystem_auth
     volumes:
       - auth_db:/var/lib/postgresql/data
@@ -18,9 +18,9 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://ecosystem:change_this_password@db:5432/ecosystem_auth
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
     ports:
-      - "4000:4000"
+      - "127.0.0.1:4000:4000"
     depends_on:
       db:
         condition: service_healthy
