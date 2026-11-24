@@ -97,12 +97,41 @@ async function sendViaBrevo({ to, subject, html, text }) {
     });
   }
   const result = await response.json().catch(() => ({}));
-  if (!result.messageId && !Array.isArray(result.messageIds)) {
+  const messageId = result.messageId || result.messageIds?.[0];
+  if (typeof messageId !== 'string' || !messageId.trim()) {
     throw createDeliveryError('HTTPS email provider did not confirm acceptance.', {
       code: 'BREVO_NO_MESSAGE_ID'
     });
   }
-  return { status: 'accepted', messageId: result.messageId ?? result.messageIds?.[0] ?? null };
+  void checkBrevoDelivery(messageId);
+  return { status: 'accepted', messageId };
+}
+
+async function checkBrevoDelivery(messageId) {
+  const url = new URL('https://api.brevo.com/v3/smtp/statistics/events');
+  url.searchParams.set('messageId', messageId);
+  for (const delay of [5000, 15000, 40000]) {
+    await new Promise(resolve => setTimeout(resolve, delay));
+    try {
+      const response = await fetch(url, {
+        headers: { 'api-key': config.BREVO_API_KEY, accept: 'application/json' },
+        signal: AbortSignal.timeout(5000)
+      });
+      if (!response.ok) {
+        console.warn('Email delivery lookup failed:', response.status, messageId);
+        return;
+      }
+      const { events } = await response.json();
+      const terminal = events?.find(item => ['delivered', 'hardbounce', 'blocked', 'invalid', 'error'].includes(String(item.event).toLowerCase()));
+      if (terminal) {
+        console.info('Email delivery result:', terminal.event, messageId);
+        return;
+      }
+    } catch {
+      console.warn('Email delivery lookup unavailable:', messageId);
+    }
+  }
+  console.info('Email delivery still unconfirmed:', messageId);
 }
 
 export async function verifyEmailProvider() {

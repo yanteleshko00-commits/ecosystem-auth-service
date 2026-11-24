@@ -301,11 +301,12 @@ router.post('/v1/auth/forgot-password', requireSameOrigin, async (req, res) => {
   const parsed = emailSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_email' });
   const email = normalizeEmail(parsed.data.email);
-  const result = await pool.query('SELECT id FROM users WHERE email = $1 AND email_verified_at IS NOT NULL', [email]);
+  const result = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
   if (result.rowCount) {
     const code = await createEmailToken(result.rows[0].id, 'reset_password');
     try {
-      await sendCodeEmail({ to: email, code, purpose: 'reset_password' });
+      const receipt = await sendCodeEmail({ to: email, code, purpose: 'reset_password' });
+      console.info('Password reset email accepted:', { messageId: receipt.messageId });
     } catch (error) {
       console.error('Password reset email delivery failed:', {
         code: error.code, httpStatus: error.httpStatus, smtpResponseCode: error.smtpResponseCode, message: error.message
@@ -330,7 +331,7 @@ router.post('/v1/auth/reset-password', requireSameOrigin, async (req, res) => {
   const changed = await transaction(async db => {
     const consumed = await consumeEmailToken(user.rows[0].id, parsed.data.code, 'reset_password', db);
     if (!consumed) return false;
-    await db.query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [passwordHash, user.rows[0].id]);
+    await db.query('UPDATE users SET password_hash = $1, email_verified_at = COALESCE(email_verified_at, NOW()), updated_at = NOW() WHERE id = $2', [passwordHash, user.rows[0].id]);
     await db.query('DELETE FROM sessions WHERE user_id = $1', [user.rows[0].id]);
     return true;
   });
