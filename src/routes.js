@@ -278,8 +278,9 @@ router.post('/v1/auth/logout', requireSameOrigin, async (req, res) => {
 });
 
 router.get('/v1/me', requireUser, (req, res) => {
-  const { id, name, email, free_requests_used, paid_credits } = req.user;
+  const { id, name, email, free_requests_used, paid_credits, session_id } = req.user;
   return res.json({
+    sessionId: session_id,
     user: { id, name, email },
     usage: { freeRequestsUsed: free_requests_used, freeRequestsRemaining: Math.max(0, 3 - free_requests_used), paidCredits: paid_credits },
     packages
@@ -445,6 +446,13 @@ router.post('/v1/internal/session/validate', requireService, async (req, res) =>
   res.json({ user: { id: u.id, name: u.name, email: u.email },
     usage: { freeRequestsUsed: u.free_requests_used, freeRequestsRemaining: Math.max(0, 3 - u.free_requests_used), paidCredits: u.paid_credits }, packages });
 });
+router.post('/v1/internal/session/revoke', requireService, async (req, res) => {
+  const parsed = z.object({ userId: z.string().uuid(), sessionId: z.string().uuid() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_session' });
+  await pool.query('DELETE FROM sessions WHERE id = $1 AND user_id = $2', [parsed.data.sessionId, parsed.data.userId]);
+  res.json({ ok: true });
+});
+
 router.post('/v1/internal/usage/reserve', requireService, async (req, res) => {
   const schema = z.object({ userId: z.string().uuid(), idempotencyKey: z.string().min(8).max(128) });
   const parsed = schema.safeParse(req.body);
