@@ -260,11 +260,12 @@ router.post('/v1/auth/login', requireSameOrigin, async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_login_data' });
   const email = normalizeEmail(parsed.data.email);
-  const result = await pool.query('SELECT id, password_hash, email_verified_at FROM users WHERE email = $1', [email]);
+  const result = await pool.query('SELECT id, banned, password_hash, email_verified_at FROM users WHERE email = $1', [email]);
   const user = result.rows[0];
   if (!user || !(await verifyPassword(user.password_hash, parsed.data.password))) {
     return res.status(401).json({ error: 'invalid_credentials', message: 'Неверный email или пароль.' });
   }
+  if (user.banned) return res.status(403).json({error:'account_blocked'});
   if (!user.email_verified_at) return res.status(403).json({ error: 'email_not_verified', message: 'Сначала подтвердите email.' });
   await makeSession(user.id, res);
   return res.json({ ok: true, message: 'Вход выполнен.' });
@@ -396,7 +397,7 @@ router.post('/oauth/token', express.urlencoded({ extended: false }), async (req,
     const authCode = found.rows[0];
     if (!authCode || authCode.client_id !== client.clientId || authCode.redirect_uri !== body.redirect_uri || !timingSafeEqualText(authCode.code_challenge, challenge)) return null;
     await db.query('UPDATE oauth_codes SET used_at = NOW() WHERE id = $1', [authCode.id]);
-    const account = await db.query('SELECT id, name, email, free_requests_used, paid_credits, email_verified_at FROM users WHERE id = $1', [authCode.user_id]);
+    const account = await db.query('SELECT id, name, email, free_requests_used, paid_credits, email_verified_at FROM users WHERE id = $1 AND NOT banned', [authCode.user_id]);
     return account.rows[0] ?? null;
   });
   if (!result) return res.status(400).json({ error: 'invalid_or_expired_authorization_code' });
@@ -410,7 +411,7 @@ router.get('/v1/internal/users/:userId/summary', requireService, async (req, res
   const parsedId = z.string().uuid().safeParse(req.params.userId);
   if (!parsedId.success) return res.status(400).json({ error: 'invalid_user_id' });
   const result = await pool.query(
-    'SELECT id, name, email, free_requests_used, paid_credits FROM users WHERE id = $1',
+    'SELECT id, name, email, free_requests_used, paid_credits FROM users WHERE id = $1 AND NOT banned',
     [parsedId.data]
   );
   if (!result.rowCount) return res.status(404).json({ error: 'user_not_found' });
@@ -432,7 +433,7 @@ router.post('/v1/internal/usage/reserve', requireService, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'invalid_usage_reservation' });
   const { userId, idempotencyKey } = parsed.data;
   const reservation = await transaction(async db => {
-    const account = await db.query('SELECT free_requests_used, paid_credits FROM users WHERE id = $1 FOR UPDATE', [userId]);
+    const account = await db.query('SELECT free_requests_used, paid_credits, subscribed_until > NOW() AS subscribed FROM users WHERE id = $1 AND NOT banned FOR UPDATE', [userId]);
     if (!account.rowCount) return { notFound: true };
     const existing = await db.query(
       `SELECT id, bucket, status FROM usage_events
@@ -441,7 +442,7 @@ router.post('/v1/internal/usage/reserve', requireService, async (req, res) => {
     );
     if (existing.rowCount) return { ...existing.rows[0], replayed: true };
     const row = account.rows[0];
-    const bucket = resolveUsageBucket({
+    const bucket = row.subscribed ? 'subscription' : resolveUsageBucket({
       freeRequestsUsed: row.free_requests_used,
       paidCredits: row.paid_credits
     });
@@ -449,7 +450,7 @@ router.post('/v1/internal/usage/reserve', requireService, async (req, res) => {
       await db.query('UPDATE users SET free_requests_used = free_requests_used + 1, updated_at = NOW() WHERE id = $1', [userId]);
     } else if (bucket === 'paid') {
       await db.query('UPDATE users SET paid_credits = paid_credits - 1, updated_at = NOW() WHERE id = $1', [userId]);
-    } else {
+    } else if (!bucket) {
       return { insufficient: true };
     }
     const inserted = await db.query(
@@ -485,7 +486,7 @@ router.post('/v1/internal/usage/:reservationId/finalize', requireService, async 
     }
     if (event.bucket === 'free') {
       await db.query('UPDATE users SET free_requests_used = GREATEST(0, free_requests_used - 1), updated_at = NOW() WHERE id = $1', [event.user_id]);
-    } else {
+    } else if (event.bucket === 'paid') {
       await db.query('UPDATE users SET paid_credits = paid_credits + 1, updated_at = NOW() WHERE id = $1', [event.user_id]);
     }
     await db.query("UPDATE usage_events SET status = 'refunded', finalized_at = NOW() WHERE id = $1", [event.id]);
@@ -541,3 +542,36 @@ router.get('/logout', async (req, res) => {
 router.get('/login', (_req, res) => res.sendFile(fileURLToPath(new URL('../public/login.html', import.meta.url))));
 router.get('/assets/auth.js', (_req, res) => res.sendFile(fileURLToPath(new URL('../public/auth.js', import.meta.url))));
 router.get('/assets/auth.css', (_req, res) => res.sendFile(fileURLToPath(new URL('../public/auth.css', import.meta.url))));
+
+function consoleOwner(req, res, next) {
+  const key = process.env.NEXORA_CONSOLE_SECRET;
+  res.set('Cache-Control', 'no-store');
+  if (!key || key.length < 32 || !timingSafeEqualText(req.get('authorization'), 'Bearer ' + key)) {
+    return res.status(403).json({error: 'forbidden'});
+  }
+  next();
+}
+router.get('/v1/console/users', consoleOwner, async (req, res) => {
+  const list = await pool.query(`SELECT u.id, u.name, u.email, u.banned, u.created_at, u.subscribed_until,
+    (SELECT MAX(e.created_at) FROM usage_events e WHERE e.user_id=u.id) AS last_usage
+    FROM users u ORDER BY u.created_at DESC`);
+  res.json({users:list.rows});
+});
+router.post('/v1/console/users', consoleOwner, async (req,res) => {
+  const parsed = z.object({id:z.string().uuid(), action:z.enum(['ban','unban','subscribe','revoke']), until:z.string().datetime().optional()}).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({error:'invalid_request'});
+  const {id,action,until}=parsed.data;
+  if (action==='subscribe' && (!until || Date.parse(until)<=Date.now() || Date.parse(until)>Date.now()+366*86400000)) return res.status(400).json({error:'invalid_date'});
+  const result=await transaction(async db=>{
+    const result=['ban','unban'].includes(action)
+      ? await db.query('UPDATE users SET banned=$2 WHERE id=$1 RETURNING id,banned,subscribed_until',[id,action==='ban'])
+      : await db.query('UPDATE users SET subscribed_until=$2 WHERE id=$1 RETURNING id,banned,subscribed_until',[id,action==='subscribe'?until:null]);
+    if(action==='ban') {
+      await db.query('DELETE FROM sessions WHERE user_id=$1',[id]);
+      await db.query('DELETE FROM oauth_codes WHERE user_id=$1',[id]);
+    }
+    return result.rows[0];
+  });
+  if(!result) return res.status(404).json({error:'user_not_found'});
+  res.json({user:result});
+});
