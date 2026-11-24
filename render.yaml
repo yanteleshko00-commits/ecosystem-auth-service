@@ -53,6 +53,8 @@ services:
         sync: false
       - key: PROJECTS_SERVICE_API_KEY
         sync: false
+      - key: PROJECTS_SECURITY_SERVICE_KEY
+        sync: false
       - key: PROJECTS_REDIRECT_URI
         value: https://vse-proekty-ian-1.onrender.com/auth/callback
       - key: PAYMENT_WEBHOOK_SECRET

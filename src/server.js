@@ -1,6 +1,8 @@
 import {serveBrand} from './brand.js';
 import 'express-async-errors';
 import express from 'express';
+import { isIP } from 'node:net';
+import { timingSafeEqualText } from './security.js';
 import { fileURLToPath } from 'node:url';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -30,7 +32,15 @@ app.use(helmet({
 app.use(express.json({ limit: '20kb' }));
 app.use(express.urlencoded({ extended: false, limit: '20kb' }));
 app.use(cookieParser());
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: 'draft-7', legacyHeaders: false }));
+function authenticatedProxyIp(req) {
+  const serviceId=req.get('x-service-id');
+  const client=config.clients.find(c=>c.clientId==='nexora'&&c.clientId===serviceId);
+  const key=req.get('x-service-api-key');
+  const ip=req.get('x-nexora-client-ip');
+  return client&&key&&ip&&isIP(ip)&&timingSafeEqualText(key,client.serviceApiKey)?ip:null;
+}
+const addressKey=req=>authenticatedProxyIp(req)||req.ip;
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: 'draft-7', legacyHeaders: false,keyGenerator:addressKey }));
 // Independent per-address and per-email limits; email rotation cannot bypass the IP guard.
 const authLimitOptions = {
   windowMs: 15 * 60 * 1000,
@@ -40,7 +50,7 @@ const authLimitOptions = {
     message: 'Слишком много попыток. Подождите 15 минут и попробуйте снова.'
   })
 };
-app.use('/v1/auth', rateLimit({ ...authLimitOptions, limit: 100 }));
+app.use('/v1/auth', rateLimit({ ...authLimitOptions, limit: 100, keyGenerator:addressKey }));
 app.use('/v1/auth', rateLimit({
   ...authLimitOptions, limit: 20,
   skip: req => !validRateEmail(req.body?.email),

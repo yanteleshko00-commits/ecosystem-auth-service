@@ -29,6 +29,7 @@ function issueCookieSession(res, token) {
 async function createEmailToken(userId, purpose) {
   const code = randomCode();
   await transaction(async db => {
+    await db.query('SELECT id FROM users WHERE id = $1 FOR UPDATE',[userId]);
     await db.query(
       'UPDATE email_tokens SET used_at = NOW() WHERE user_id = $1 AND purpose = $2 AND used_at IS NULL',
       [userId, purpose]
@@ -128,15 +129,17 @@ router.post('/v1/auth/register', requireSameOrigin, async (req, res) => {
     );
     if (count.rows[0].total >= 3) return { limitReached: true };
     const inserted = await db.query(
-      'INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id',
+      'INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) ON CONFLICT (email) DO NOTHING RETURNING id',
       [parsed.data.name, email, passwordHash]
     );
+    if(!inserted.rowCount)return {alreadyExists:true};
     await db.query(
       'INSERT INTO device_accounts (device_hash, user_id) VALUES ($1, $2)',
       [deviceHash, inserted.rows[0].id]
     );
     return { userId: inserted.rows[0].id };
   });
+  if(created.alreadyExists)return res.status(201).json({ok:true,message:'Если регистрация доступна, проверьте почту и введите код подтверждения.'});
   if (created.limitReached) {
     return res.status(429).json({
       error: 'device_account_limit',
@@ -150,10 +153,8 @@ router.post('/v1/auth/register', requireSameOrigin, async (req, res) => {
     console.error('Registration email delivery failed:', {
       code: error.code, httpStatus: error.httpStatus, smtpResponseCode: error.smtpResponseCode, message: error.message
     });
-    return res.status(503).json({
-      error: 'email_delivery_unavailable',
-      message: 'Аккаунт создан, но код пока не отправлен. Повторите отправку кода позже — повторная регистрация не нужна.'
-    });
+    // A uniform response prevents account enumeration through SMTP failures.
+    return res.status(201).json({ok:true,message:'Если регистрация доступна, проверьте почту и введите код подтверждения.'});
   }
   return res.status(201).json({ ok: true, message: 'Если регистрация доступна, проверьте почту и введите код подтверждения.' });
 });
