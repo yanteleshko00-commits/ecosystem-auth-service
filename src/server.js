@@ -1,3 +1,4 @@
+import {serveBrand} from './brand.js';
 import 'express-async-errors';
 import express from 'express';
 import { fileURLToPath } from 'node:url';
@@ -50,6 +51,7 @@ app.use('/v1/auth', rateLimit({
     message: 'Слишком много попыток. Подождите 15 минут и попробуйте снова.'
   })
 }));
+app.use((req,res,next)=>{if(!serveBrand(req,res,req.path,'NEXORA ID'))next();});
 app.use(express.static(fileURLToPath(new URL('../public', import.meta.url)), { index: false, maxAge: config.NODE_ENV === 'production' ? '1h' : 0 }));
 app.use(router);
 app.get('/', (_req, res) => res.redirect('/login'));
