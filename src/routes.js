@@ -457,7 +457,10 @@ router.post('/v1/internal/admin/attempt', requireService, async (req,res)=>{
   if(req.service.clientId!=='nexora')return res.status(403).json({error:'forbidden'});
   const parsed=z.object({ip:z.string().max(100),kind:z.enum(['password','totp'])}).safeParse(req.body);
   if(!parsed.success||!isIP(parsed.data.ip))return res.status(400).json({error:'invalid_request'});
-  const allowed=await takePersistentRate(pool,'admin-'+parsed.data.kind,parsed.data.ip,5,900);
+  // TOTP codes rotate every 30 seconds. Keep a short, durable anti-brute-force
+  // window instead of a 15-minute lockout; use a fresh scope to retire old blocks.
+  const isTotp=parsed.data.kind==='totp';
+  const allowed=await takePersistentRate(pool,isTotp?'admin-totp-v2':'admin-password',parsed.data.ip,5,isTotp?60:900);
   return res.status(allowed?200:429).json({allowed});
 });
 router.post('/v1/internal/session/revoke', requireService, async (req, res) => {
