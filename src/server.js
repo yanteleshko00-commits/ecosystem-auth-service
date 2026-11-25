@@ -10,6 +10,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from './config.js';
 import { pool } from './db.js';
 import { router } from './routes.js';
+import { validRateEmail, takePersistentRate } from './rate-limits.js';
 import { verifyEmailProvider } from './mailer.js';
 
 const app = express();
@@ -40,26 +41,17 @@ function authenticatedProxyIp(req) {
   return client&&key&&ip&&isIP(ip)&&timingSafeEqualText(key,client.serviceApiKey)?ip:null;
 }
 const addressKey=req=>authenticatedProxyIp(req)||req.ip;
+app.use((req,_res,next)=>{req.clientAddress=addressKey(req);next();});
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: 'draft-7', legacyHeaders: false,keyGenerator:addressKey }));
-// Independent per-address and per-email limits; email rotation cannot bypass the IP guard.
-const authLimitOptions = {
-  windowMs: 15 * 60 * 1000,
-  standardHeaders: 'draft-7', legacyHeaders: false,
-  handler: (_req, res) => res.status(429).json({
-    error: 'auth_rate_limited',
-    message: 'Слишком много попыток. Подождите 15 минут и попробуйте снова.'
-  })
-};
-app.use('/v1/auth', rateLimit({ ...authLimitOptions, limit: 100, keyGenerator:addressKey }));
-app.use('/v1/auth', rateLimit({
-  ...authLimitOptions, limit: 20,
-  skip: req => !validRateEmail(req.body?.email),
-  keyGenerator: req => validRateEmail(req.body?.email)
-}));
-function validRateEmail(value) {
-  const email = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : '';
-}
+app.use('/v1/auth', async (req,res,next)=>{
+  const email=validRateEmail(req.body?.email);
+  const ip=await takePersistentRate(pool,'auth-ip',req.clientAddress,100,900);
+  const account=ip&&(!email||await takePersistentRate(pool,'auth-email',email,20,900));
+  if(!account)return res.status(429).set('Retry-After','900').json({error:'auth_rate_limited',message:'Слишком много попыток. Повторите позже.'});
+  next();
+});
+const cleanup=setInterval(()=>pool.query("DELETE FROM security_rate_limits WHERE expires_at < NOW()").catch(e=>console.error('rate cleanup:',e.code)),3600000);
+cleanup.unref();
 app.use((req,res,next)=>{if(!serveBrand(req,res,req.path,'NEXORA ID'))next();});
 app.use(express.static(fileURLToPath(new URL('../public', import.meta.url)), { index: false, maxAge: config.NODE_ENV === 'production' ? '1h' : 0 }));
 app.use(router);

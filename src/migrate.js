@@ -6,7 +6,7 @@ const migrations = [
   '001_init.sql',
   '002_add_user_name.sql',
   '003_device_account_limit.sql',
-  '004_login_code_purpose.sql', '005_console.sql', '006_security.sql'
+  '004_login_code_purpose.sql', '005_console.sql', '006_security.sql', '007_persistent_limits.sql'
 ];
 
 try {

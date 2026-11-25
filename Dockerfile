@@ -8,4 +8,4 @@ COPY public ./public
 COPY migrations ./migrations
 EXPOSE 4000
 USER node
-CMD ["node", "src/server.js"]
+CMD ["sh", "-c", "node src/migrate.js && exec node src/server.js"]

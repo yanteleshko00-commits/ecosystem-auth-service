@@ -12,6 +12,8 @@ import {
 } from './security.js';
 import { requirePaymentWebhook, requireService } from './service-auth.js';
 import { packages, resolveUsageBucket } from './policy.js';
+import { takePersistentRate } from './rate-limits.js';
+import { isIP } from 'node:net';
 
 export const router = express.Router();
 const codeTtlMinutes = 15;
@@ -102,14 +104,17 @@ router.post('/v1/auth/register', requireSameOrigin, async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_registration_data' });
   const email = normalizeEmail(parsed.data.email);
+  if(!await takePersistentRate(pool,'registration-ip',req.clientAddress,6,86400))return res.status(429).json({error:'registration_rate_limited',message:'Лимит регистраций с этого адреса. Повторите завтра.'});
   const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
   if (existing.rowCount) {
     return res.status(201).json({ ok: true, message: 'Если регистрация доступна, проверьте почту и введите код подтверждения.' });
   }
 
   // A long-lived, HttpOnly device cookie groups registrations from this browser.
-  const deviceToken = req.cookies?.ecosystem_device || randomToken(32);
-  if (!req.cookies?.ecosystem_device) {
+  const rawDevice=req.cookies?.ecosystem_device;
+  const validDevice=typeof rawDevice==='string'&&/^[A-Za-z0-9_-]{32,128}$/.test(rawDevice);
+  const deviceToken = validDevice ? rawDevice : randomToken(32);
+  if (!validDevice) {
     res.cookie('ecosystem_device', deviceToken, {
       httpOnly: true,
       secure: config.cookieSecure,
@@ -447,6 +452,14 @@ router.post('/v1/internal/session/validate', requireService, async (req, res) =>
   res.json({ user: { id: u.id, name: u.name, email: u.email },
     usage: { freeRequestsUsed: u.free_requests_used, freeRequestsRemaining: Math.max(0, 3 - u.free_requests_used), paidCredits: u.paid_credits }, packages });
 });
+// Durable per-address admin throttle, shared by all instances and across restarts.
+router.post('/v1/internal/admin/attempt', requireService, async (req,res)=>{
+  if(req.service.clientId!=='nexora')return res.status(403).json({error:'forbidden'});
+  const parsed=z.object({ip:z.string().max(100),kind:z.enum(['password','totp'])}).safeParse(req.body);
+  if(!parsed.success||!isIP(parsed.data.ip))return res.status(400).json({error:'invalid_request'});
+  const allowed=await takePersistentRate(pool,'admin-'+parsed.data.kind,parsed.data.ip,5,900);
+  return res.status(allowed?200:429).json({allowed});
+});
 router.post('/v1/internal/session/revoke', requireService, async (req, res) => {
   const parsed = z.object({ userId: z.string().uuid(), sessionId: z.string().uuid() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_session' });
@@ -455,13 +468,14 @@ router.post('/v1/internal/session/revoke', requireService, async (req, res) => {
 });
 
 router.post('/v1/internal/usage/reserve', requireService, async (req, res) => {
-  const schema = z.object({ userId: z.string().uuid(), idempotencyKey: z.string().min(8).max(128) });
+  const schema = z.object({ userId: z.string().uuid(), idempotencyKey: z.string().min(8).max(128), sessionId: z.string().uuid().optional() });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_usage_reservation' });
   const { userId, idempotencyKey } = parsed.data;
   const reservation = await transaction(async db => {
     const account = await db.query('SELECT free_requests_used, paid_credits, subscribed_until > NOW() AS subscribed FROM users WHERE id = $1 AND NOT banned FOR UPDATE', [userId]);
     if (!account.rowCount) return { notFound: true };
+    if(parsed.data.sessionId){const live=await db.query('SELECT id FROM sessions WHERE id=$1 AND user_id=$2 AND expires_at>NOW()',[parsed.data.sessionId,userId]);if(!live.rowCount)return {notFound:true};}
     const existing = await db.query(
       `SELECT id, bucket, status FROM usage_events
         WHERE user_id = $1 AND service_id = $2 AND idempotency_key = $3`,
