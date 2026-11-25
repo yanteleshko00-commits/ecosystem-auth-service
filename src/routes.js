@@ -629,3 +629,39 @@ router.get('/v1/console/usage-history', consoleOwner, async (_req,res) => {
   );
   res.json({scope:'registered_usage_events',days:30,timezone:'UTC',daily:data.rows,services:totals.rows});
 });
+
+
+const workspaceIdSchema=z.string().uuid();
+const supportSelect='id,kind,title,body,project_job,created_at,read_at';
+const projectOrigins=new Set(['https://vse-proekty-ian.onrender.com','https://vse-proekty-ian-1.onrender.com']);
+router.get('/workspace',async(req,res)=>{res.set('Cache-Control','no-store');if(!await findSessionUser(req))return res.redirect('/login?next=%2Fworkspace');return res.sendFile(fileURLToPath(new URL('../public/workspace.html',import.meta.url)));});
+router.get('/v1/me/workspace',requireUser,async(req,res)=>{res.set('Cache-Control','no-store');const data=await pool.query('SELECT '+supportSelect+" FROM support_items WHERE user_id=$1 AND kind<>'note' ORDER BY created_at DESC LIMIT 100",[req.user.id]);res.json({items:data.rows,user:{name:req.user.name}});});
+router.post('/v1/me/workspace',requireSameOrigin,requireUser,async(req,res)=>{
+ const parsed=z.object({message:z.string().trim().min(1).max(2000)}).safeParse(req.body);if(!parsed.success)return res.status(400).json({error:'invalid_message'});
+ if(!await takePersistentRateForWorkspace(req.user.id))return res.status(429).json({error:'Слишком много сообщений. Повторите позже.'});
+ const data=await pool.query("INSERT INTO support_items(user_id,kind,title,body) VALUES($1,'reply','Ответ пользователя',$2) RETURNING "+supportSelect,[req.user.id,parsed.data.message]);res.status(201).json({item:data.rows[0]});
+});
+async function takePersistentRateForWorkspace(id){const q=await pool.query("SELECT count(*)::int AS n FROM support_items WHERE user_id=$1 AND kind='reply' AND created_at>now()-interval '1 hour'",[id]);return q.rows[0].n<20;}
+router.post('/v1/me/workspace/:id/read',requireSameOrigin,requireUser,async(req,res)=>{if(!workspaceIdSchema.safeParse(req.params.id).success)return res.status(404).json({error:'not_found'});await pool.query("UPDATE support_items SET read_at=coalesce(read_at,now()) WHERE id=$1 AND user_id=$2 AND kind<>'note'",[req.params.id,req.user.id]);res.json({ok:true});});
+router.get('/v1/console/workspace/:id',consoleOwner,async(req,res)=>{
+ if(!workspaceIdSchema.safeParse(req.params.id).success)return res.status(400).json({error:'invalid_id'});
+ const u=await pool.query('SELECT id,name,email,banned,paid_credits,free_requests_used,subscribed_until,created_at FROM users WHERE id=$1',[req.params.id]);if(!u.rowCount)return res.status(404).json({error:'user_not_found'});
+ const data=await pool.query('SELECT '+supportSelect+' FROM support_items WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100',[req.params.id]);res.json({user:u.rows[0],items:data.rows});
+});
+router.post('/v1/console/workspace/:id',consoleOwner,async(req,res)=>{
+ if(!workspaceIdSchema.safeParse(req.params.id).success)return res.status(400).json({error:'invalid_id'});
+ const parsed=z.object({kind:z.enum(['message','note','credits','project']),title:z.string().trim().min(1).max(180),body:z.string().trim().max(2000).default(''),credits:z.number().int().min(1).max(1000).optional(),projectJob:z.string().uuid().optional(),projectCap:z.string().max(512).optional(),projectOrigin:z.string().optional()}).safeParse(req.body);
+ if(!parsed.success)return res.status(400).json({error:'invalid_request'});
+ const d=parsed.data,id=req.params.id;
+ if(d.kind==='credits'&&!d.credits||d.kind==='project'&&(!d.projectJob||!d.projectCap||!projectOrigins.has(d.projectOrigin)))return res.status(400).json({error:'invalid_request'});
+ const item=await transaction(async db=>{
+ const u=await db.query('SELECT id,banned FROM users WHERE id=$1 FOR UPDATE',[id]);if(!u.rowCount)return null;
+ if(d.kind==='credits')await db.query('UPDATE users SET paid_credits=paid_credits+$2,updated_at=now() WHERE id=$1',[id,d.credits]);
+ const result=await db.query('INSERT INTO support_items(user_id,kind,title,body,project_job,project_cap,project_origin) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING '+supportSelect,[id,d.kind,d.title,d.kind==='credits'?'Начислено дополнительных генераций: '+d.credits:d.body,d.kind==='project'?d.projectJob:null,d.kind==='project'?d.projectCap:null,d.kind==='project'?d.projectOrigin:null]);return result.rows[0];
+ });if(!item)return res.status(404).json({error:'user_not_found'});res.status(201).json({item});
+});
+router.get('/v1/me/workspace/:id/project',requireUser,async(req,res)=>{
+ res.set('Cache-Control','no-store');if(!workspaceIdSchema.safeParse(req.params.id).success)return res.status(404).json({error:'not_found'});
+ const q=await pool.query("SELECT project_job,project_cap,project_origin FROM support_items WHERE id=$1 AND user_id=$2 AND kind='project'",[req.params.id,req.user.id]);const item=q.rows[0];if(!item||!projectOrigins.has(item.project_origin))return res.status(404).json({error:'not_found'});
+ try{const r=await fetch(item.project_origin+'/internal/support-project/'+item.project_job,{headers:{'x-nexora-delivery':item.project_cap},redirect:'error',signal:AbortSignal.timeout(30000)});if(!r.ok)return res.status(r.status===404?404:502).json({error:r.status===404?'Проект больше не хранится на сервере.':'Генератор временно недоступен.'});return res.json(await r.json());}catch{return res.status(502).json({error:'Генератор временно недоступен.'});}
+});
