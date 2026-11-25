@@ -3,7 +3,7 @@ services:
     name: ecosystem-auth-service
     runtime: node
     plan: free
-    buildCommand: (if [ -f package-lock.json ]; then npm ci; else npm install; fi) && npm run check && npm test
+    buildCommand: npm ci && npm run check && npm test
     startCommand: npm run migrate && npm start
     healthCheckPath: /health
     autoDeploy: false
