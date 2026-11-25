@@ -6,15 +6,15 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f3f5f9">
   <title>NEXORA ID · Единый аккаунт</title>
-  <link rel="stylesheet" href="/assets/auth.css?v=20261120-1">
+  <link rel="stylesheet" href="/assets/auth.css?v=20261125-3">
   <script src="/assets/auth.js?v=20261120-1" defer></script>
 <link rel="icon" type="image/svg+xml" href="/nexora-mark.svg?v=2"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=2"><link rel="manifest" href="/nexora.webmanifest"></head>
 <body>
   <main class="shell">
     <section class="panel">
-      <div class="mark" aria-hidden="true">✦</div>
-      <p class="eyebrow">ЕДИНЫЙ АККАУНТ ЭКОСИСТЕМЫ</p>
-      <img src="/nexora-mark.svg?v=2" alt="NEXORA" width="56" height="56"><h1 id="heading">Войти в NEXORA ID</h1>
+      
+      <img class="nx-auth-logo" src="/nexora-mark.svg?v=2" alt="NEXORA" width="56" height="56">
+      <p class="eyebrow">ЕДИНЫЙ АККАУНТ ЭКОСИСТЕМЫ</p><h1 id="heading">Войти в NEXORA ID</h1>
       <p class="muted" id="subheading">Один аккаунт для всех сервисов. Войдите по коду из письма.</p>
       <div class="tabs" role="tablist" aria-label="Действие">
         <button class="tab active" type="button" data-mode="login">Войти</button>
@@ -45,6 +45,7 @@
       <div class="message" id="message" role="status" aria-live="polite"></div>
       <button class="quiet forgot hidden" id="forgot" type="button">Забыли пароль?</button>
       <p class="footnote">Код для входа действует 15 минут и используется один раз. Никому не сообщайте его. После входа можно переходить между подключёнными сервисами без повторной регистрации.</p>
+    <nav class="nx-auth-footer" aria-label="Ссылки NEXORA"><a href="https://nexora-lobby.onrender.com/">Все инструменты</a><a href="https://nexora-lobby.onrender.com/docs/privacy-policy.pdf" target="_blank" rel="noopener">Конфиденциальность ↗</a></nav>
     </section>
   </main>
   <div class="verify-modal hidden" id="verify-modal" role="dialog" aria-modal="true" aria-labelledby="verify-title">

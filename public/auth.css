@@ -23,3 +23,27 @@ body.modal-open{overflow:hidden}
 .resend-code{display:block;width:fit-content;margin:2px auto 0;font-size:12px}
 .resend-code:disabled{opacity:.55;cursor:wait}
 #login-code{width:100%}
+
+/* NEXORA design v3 · one clear action and mobile-first authentication */
+:root{--nx-accent:#5c48d6;--nx-ink:#201b36;--nx-muted:#625c76;--nx-line:#e6e2ef;--nx-surface:#fff;--nx-soft:#f1edfc}
+body{background:radial-gradient(ellipse at 75% 2%,#e8e1fb,transparent 55%),#f7f7fa;color:var(--nx-ink);padding:clamp(16px,4vw,40px)}
+.shell{width:min(100%,460px)}
+.panel{background:var(--nx-surface);border:1px solid var(--nx-line);border-radius:26px;padding:clamp(24px,5vw,40px);box-shadow:0 16px 50px rgba(40,28,75,.08);backdrop-filter:none}
+.nx-auth-logo{display:block;margin:0 0 22px}
+.eyebrow{color:var(--nx-muted);font-size:11px}
+h1{font-size:clamp(27px,5vw,34px);line-height:1.08;font-weight:780;letter-spacing:-.045em}
+.muted,.footnote{color:var(--nx-muted)}
+.tabs{background:var(--nx-soft);border-radius:14px}
+.tab{min-height:44px;color:var(--nx-muted)}
+.tab.active{background:var(--nx-surface);color:var(--nx-ink)}
+input{font-size:16px;min-height:48px;border-color:var(--nx-line);border-radius:13px;background:var(--nx-surface);color:var(--nx-ink)}
+input:focus{border-color:var(--nx-accent);box-shadow:0 0 0 3px rgba(92,72,214,.14)}
+.primary{min-height:48px;border-radius:14px;background:#5c48d6;color:#fff;font-weight:720;font-size:16px;box-shadow:0 7px 18px rgba(92,72,214,.17)}
+.quiet{min-height:44px;color:var(--nx-accent)}
+:where(button,a,input):focus-visible{outline:3px solid var(--nx-accent);outline-offset:3px}
+.nx-auth-footer{border-top:1px solid var(--nx-line);margin-top:22px;padding-top:16px;display:flex;flex-wrap:wrap;gap:8px 18px}
+.nx-auth-footer a{color:var(--nx-muted);font-size:12px;font-weight:650;text-decoration:none;line-height:1.6}
+.nx-auth-footer a:hover{text-decoration:underline}
+@media(prefers-color-scheme:dark){:root{--nx-accent:#b1a2ff;--nx-ink:#f5f2fc;--nx-muted:#c0b8d0;--nx-line:#443d59;--nx-surface:#262237;--nx-soft:#332b4b}body{background:radial-gradient(ellipse at 75% 0%,#34294e,transparent 55%),#171322}.panel{box-shadow:0 16px 50px rgba(0,0,0,.25)}}
+@media(max-width:480px){.panel{border-radius:21px}.nx-auth-logo{margin-bottom:16px}}
+@media(prefers-reduced-motion:reduce){.verify-modal-card{animation:none}}
