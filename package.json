@@ -11,8 +11,9 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "migrate": "node src/migrate.js",
-    "check": "node --check src/server.js && node --check src/config.js && node --check src/security.js && node --check src/mailer.js && node --check src/service-auth.js && node --check src/routes.js && node --check src/migrate.js && node --check src/policy.js && node --check public/auth.js",
-    "test": "node --test"
+    "check": "node --check src/server.js && node --check src/config.js && node --check src/security.js && node --check src/mailer.js && node --check src/service-auth.js && node --check src/routes.js && node --check src/migrate.js && node --check src/policy.js && node --check public/auth.js && node --check src/rate-limits.js",
+    "test": "node --test",
+    "test:integration": "RUN_AUTH_INTEGRATION=1 node --test test/auth-integration.test.js"
   },
   "dependencies": {
     "argon2": "^0.41.1",

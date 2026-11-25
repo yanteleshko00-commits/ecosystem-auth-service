@@ -1,0 +1,54 @@
+name: Auth integration and dependency lock
+on:
+  push:
+    branches: [main]
+    paths: ['package.json', 'package-lock.json', 'src/**', 'test/**', 'migrations/**', '.github/workflows/auth-security.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: auth_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U test -d auth_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      PORT: 4000
+      AUTH_PUBLIC_URL: http://127.0.0.1:4000
+      DATABASE_URL: postgresql://test:test@127.0.0.1:5432/auth_test
+      TOKEN_PEPPER: ci-only-token-pepper-not-for-production
+      NEXORA_CLIENT_SECRET: ci-only-client-secret-not-for-production
+      NEXORA_SERVICE_API_KEY: ci-only-service-secret-not-for-production
+      NEXORA_REDIRECT_URI: https://example.test/auth/callback
+      PAYMENT_WEBHOOK_SECRET: ci-only-payment-secret-not-for-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate lock if missing
+        run: test -f package-lock.json || npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+      - run: npm run check && npm test
+      - run: npm run migrate && npm run test:integration
+      - name: Commit initial dependency lock
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git add package-lock.json
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Lock auth service dependencies"
+          git push origin HEAD:main
