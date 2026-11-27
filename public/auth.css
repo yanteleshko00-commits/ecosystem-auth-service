@@ -47,3 +47,18 @@ input:focus{border-color:var(--nx-accent);box-shadow:0 0 0 3px rgba(92,72,214,.1
 @media(prefers-color-scheme:dark){:root{--nx-accent:#b1a2ff;--nx-ink:#f5f2fc;--nx-muted:#c0b8d0;--nx-line:#443d59;--nx-surface:#262237;--nx-soft:#332b4b}body{background:radial-gradient(ellipse at 75% 0%,#34294e,transparent 55%),#171322}.panel{box-shadow:0 16px 50px rgba(0,0,0,.25)}}
 @media(max-width:480px){.panel{border-radius:21px}.nx-auth-logo{margin-bottom:16px}}
 @media(prefers-reduced-motion:reduce){.verify-modal-card{animation:none}}
+
+/* Desktop and compact laptop layouts; authentication behavior unchanged. */
+@media screen and (min-width:1000px){
+  .shell{width:min(100%,500px)}
+  .panel{padding:36px}
+  .verify-modal-card{width:min(100%,460px);max-height:calc(100vh - 36px);overflow-y:auto}
+}
+@media screen and (min-width:1000px) and (max-height:850px){
+  body{padding:20px;align-items:safe center}
+  .panel{padding:24px 32px}
+  .nx-auth-logo{margin-bottom:14px}
+  .muted{margin-bottom:14px}
+  .tabs{margin-bottom:14px}
+  .nx-auth-footer{margin-top:14px;padding-top:12px}
+}
