@@ -1,3 +1,4 @@
+import {readPublicFile,sendPublicAsset} from './public-performance.js';
 import {serveBrand} from './brand.js';
 import 'express-async-errors';
 import express from 'express';
@@ -53,6 +54,16 @@ app.use('/v1/auth', async (req,res,next)=>{
 const cleanup=setInterval(()=>pool.query("DELETE FROM security_rate_limits WHERE expires_at < NOW()").catch(e=>console.error('rate cleanup:',e.code)),3600000);
 cleanup.unref();
 app.use((req,res,next)=>{if(!serveBrand(req,res,req.path,'NEXORA ID'))next();});
+// Public shell only: workspace and authentication API are not cached.
+app.use(async(req,res,next)=>{
+ if(!['GET','HEAD'].includes(req.method))return next();
+ const name=({'/login':'login.html','/login.html':'login.html','/assets/auth.js':'auth.js','/auth.js':'auth.js','/assets/auth.css':'auth.css','/auth.css':'auth.css'})[req.path];
+ if(!name||typeof name!=='string')return next();
+ try{
+  const body=await readPublicFile(fileURLToPath(new URL('../public/'+name,import.meta.url)));
+  return sendPublicAsset(req,res,name,body,{'Content-Type':name.endsWith('.html')?'text/html; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8','Cache-Control':name.endsWith('.html')?'public, max-age=0, must-revalidate':'public, max-age=300'});
+ }catch(error){return next(error);}
+});
 app.use(express.static(fileURLToPath(new URL('../public', import.meta.url)), { index: false, maxAge: config.NODE_ENV === 'production' ? '1h' : 0 }));
 app.use(router);
 app.get('/', (_req, res) => res.redirect('/login'));
