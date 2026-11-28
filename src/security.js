@@ -38,7 +38,7 @@ export async function findSessionUser(req) {
   const token = req.cookies?.[config.SESSION_COOKIE_NAME];
   if (!token) return null;
   const result = await pool.query(
-    `SELECT u.id, u.name, u.email, u.free_requests_used, u.paid_credits, u.email_verified_at, s.id AS session_id
+    `SELECT u.id, u.name, u.email, u.free_requests_used, u.paid_credits, u.subscribed_until, u.email_verified_at, s.id AS session_id
        FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token_hash = $1 AND s.expires_at > NOW() AND NOT u.banned AND u.email_verified_at IS NOT NULL`,
     [sha256(token)]

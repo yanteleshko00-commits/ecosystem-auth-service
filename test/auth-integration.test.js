@@ -51,6 +51,14 @@ test('PostgreSQL: OTP lockout, OAuth session, usage and payment idempotency', {s
    assert.equal((await call('/v1/internal/payments/grant',payment,payHeaders)).data.duplicate,true);
    const balance=await pool.query('SELECT free_requests_used,paid_credits FROM users WHERE id=$1',[uid]);
    assert.equal(balance.rows[0].free_requests_used,0);assert.equal(balance.rows[0].paid_credits,3);
+   await pool.query("UPDATE users SET subscribed_until=NOW()+INTERVAL '1 day' WHERE id=$1",[uid]);
+   const live=await call('/v1/internal/session/validate',{userId:uid,sessionId:session},svc);
+   assert.equal(live.data.subscription.active,true);
+   const reserved=await Promise.all(['chat','image','text','math'].map(product=>call('/v1/internal/usage/reserve',{userId:uid,sessionId:session,idempotencyKey:crypto.randomUUID(),product},svc)));
+   assert.ok(reserved.every(r=>r.status===200&&r.data.bucket==='subscription'));
+   assert.equal((await call('/v1/internal/usage/reserve',{userId:uid,sessionId:session,idempotencyKey:crypto.randomUUID(),product:'game'},svc)).status,429);
+   for(const r of reserved)assert.equal((await call('/v1/internal/usage/'+r.data.reservationId+'/finalize',{outcome:'success'},svc)).status,200);
+   const after=await pool.query('SELECT paid_credits FROM users WHERE id=$1',[uid]);assert.equal(after.rows[0].paid_credits,3);
    assert.equal((await call('/v1/internal/session/revoke',{userId:uid,sessionId:session},svc)).status,200);
    assert.equal((await call('/v1/internal/session/validate',{userId:uid,sessionId:session},svc)).status,401);
    assert.equal((await call('/v1/internal/usage/reserve',{...reservation,idempotencyKey:crypto.randomUUID()},svc)).status,404);

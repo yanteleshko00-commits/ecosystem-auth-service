@@ -11,7 +11,7 @@ import {
   verifyPassword
 } from './security.js';
 import { requirePaymentWebhook, requireService } from './service-auth.js';
-import { packages, resolveUsageBucket } from './policy.js';
+import { packages, resolveUsageBucket, subscriptionStatus, reservationLimit, productNames } from './policy.js';
 import { takePersistentRate } from './rate-limits.js';
 import { isIP } from 'node:net';
 
@@ -284,13 +284,20 @@ router.post('/v1/auth/logout', requireSameOrigin, async (req, res) => {
 });
 
 router.get('/v1/me', requireUser, (req, res) => {
-  const { id, name, email, free_requests_used, paid_credits, session_id } = req.user;
+  const { id, name, email, free_requests_used, paid_credits, session_id, subscribed_until } = req.user;
   return res.json({
     sessionId: session_id,
     user: { id, name, email },
     usage: { freeRequestsUsed: free_requests_used, freeRequestsRemaining: Math.max(0, 3 - free_requests_used), paidCredits: paid_credits },
-    packages
+    packages, subscription:subscriptionStatus(subscribed_until)
   });
+});
+
+router.get('/v1/me/subscription',requireUser,async(req,res)=>{
+ res.set('Cache-Control','no-store');
+ const u=req.user;
+ const counts=await pool.query("SELECT COUNT(*) FILTER (WHERE created_at>NOW()-INTERVAL '1 hour')::int AS hourly,COUNT(*) FILTER (WHERE status='reserved' AND created_at>NOW()-INTERVAL '30 minutes')::int AS active FROM usage_events WHERE user_id=$1 AND created_at>NOW()-INTERVAL '1 hour'",[u.id]);
+ res.json({subscription:subscriptionStatus(u.subscribed_until),usage:{freeRequestsRemaining:Math.max(0,3-u.free_requests_used),paidCredits:u.paid_credits,...counts.rows[0]},packages});
 });
 
 router.patch('/v1/me', requireSameOrigin, requireUser, async (req, res) => {
@@ -421,7 +428,7 @@ router.get('/v1/internal/users/:userId/summary', requireService, async (req, res
   const parsedId = z.string().uuid().safeParse(req.params.userId);
   if (!parsedId.success) return res.status(400).json({ error: 'invalid_user_id' });
   const result = await pool.query(
-    'SELECT id, name, email, free_requests_used, paid_credits FROM users WHERE id = $1 AND NOT banned',
+    'SELECT id, name, email, free_requests_used, paid_credits, subscribed_until FROM users WHERE id = $1 AND NOT banned',
     [parsedId.data]
   );
   if (!result.rowCount) return res.status(404).json({ error: 'user_not_found' });
@@ -433,7 +440,7 @@ router.get('/v1/internal/users/:userId/summary', requireService, async (req, res
       freeRequestsRemaining: Math.max(0, 3 - user.free_requests_used),
       paidCredits: user.paid_credits
     },
-    packages
+    packages, subscription:subscriptionStatus(user.subscribed_until)
   });
 });
 
@@ -443,14 +450,14 @@ router.post('/v1/internal/session/validate', requireService, async (req, res) =>
   if (!parsed.success) return res.status(401).json({ error: 'invalid_session' });
   const { userId, sessionId } = parsed.data;
   const result = await pool.query(
-    `SELECT u.id, u.name, u.email, u.free_requests_used, u.paid_credits
+    `SELECT u.id, u.name, u.email, u.free_requests_used, u.paid_credits, u.subscribed_until
        FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.id = $1 AND u.id = $2 AND s.expires_at > NOW()
          AND NOT u.banned AND u.email_verified_at IS NOT NULL`, [sessionId, userId]);
   if (!result.rowCount) return res.status(401).json({ error: 'invalid_session' });
   const u = result.rows[0];
   res.json({ user: { id: u.id, name: u.name, email: u.email },
-    usage: { freeRequestsUsed: u.free_requests_used, freeRequestsRemaining: Math.max(0, 3 - u.free_requests_used), paidCredits: u.paid_credits }, packages });
+    usage: { freeRequestsUsed: u.free_requests_used, freeRequestsRemaining: Math.max(0, 3 - u.free_requests_used), paidCredits: u.paid_credits }, packages,subscription:subscriptionStatus(u.subscribed_until) });
 });
 // Durable per-address admin throttle, shared by all instances and across restarts.
 router.post('/v1/internal/admin/attempt', requireService, async (req,res)=>{
@@ -471,10 +478,11 @@ router.post('/v1/internal/session/revoke', requireService, async (req, res) => {
 });
 
 router.post('/v1/internal/usage/reserve', requireService, async (req, res) => {
-  const schema = z.object({ userId: z.string().uuid(), idempotencyKey: z.string().min(8).max(128), sessionId: z.string().uuid().optional() });
+  const schema = z.object({ userId: z.string().uuid(), idempotencyKey: z.string().min(8).max(128), sessionId: z.string().uuid().optional(), product:z.enum(productNames).optional() });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_usage_reservation' });
   const { userId, idempotencyKey } = parsed.data;
+  const product=req.service.clientId==='projects-ian'?'project':(parsed.data.product||'argosha');
   const reservation = await transaction(async db => {
     const account = await db.query('SELECT free_requests_used, paid_credits, subscribed_until > NOW() AS subscribed FROM users WHERE id = $1 AND NOT banned FOR UPDATE', [userId]);
     if (!account.rowCount) return { notFound: true };
@@ -486,6 +494,9 @@ router.post('/v1/internal/usage/reserve', requireService, async (req, res) => {
     );
     if (existing.rowCount) return { ...existing.rows[0], replayed: true };
     const row = account.rows[0];
+    const counts=await db.query("SELECT COUNT(*) FILTER (WHERE created_at>NOW()-INTERVAL '1 hour')::int AS hourly, COUNT(*) FILTER (WHERE status='reserved' AND created_at>NOW()-INTERVAL '30 minutes')::int AS active FROM usage_events WHERE user_id=$1 AND created_at>NOW()-INTERVAL '1 hour'",[userId]);
+    const limited=reservationLimit(counts.rows[0]);
+    if(limited)return {limited};
     const bucket = row.subscribed ? 'subscription' : resolveUsageBucket({
       freeRequestsUsed: row.free_requests_used,
       paidCredits: row.paid_credits
@@ -498,13 +509,14 @@ router.post('/v1/internal/usage/reserve', requireService, async (req, res) => {
       return { insufficient: true };
     }
     const inserted = await db.query(
-      `INSERT INTO usage_events (user_id, service_id, idempotency_key, bucket, status)
-       VALUES ($1, $2, $3, $4, 'reserved') RETURNING id, bucket, status`,
-      [userId, req.service.clientId, idempotencyKey, bucket]
+      `INSERT INTO usage_events (user_id, service_id, idempotency_key, bucket, status, product)
+       VALUES ($1, $2, $3, $4, 'reserved', $5) RETURNING id, bucket, status`,
+      [userId, req.service.clientId, idempotencyKey, bucket, product]
     );
     return { ...inserted.rows[0], replayed: false };
   });
   if (reservation.notFound) return res.status(404).json({ error: 'user_not_found' });
+  if(reservation.limited)return res.status(429).set('Retry-After','60').json({error:reservation.limited,message:'Слишком много генераций. Дождитесь завершения текущих заданий или повторите позже.'});
   if (reservation.insufficient) return res.status(402).json({ error: 'no_credits', message: 'Бесплатные запросы закончились. Выберите пакет.' });
   return res.json({ reservationId: reservation.id, bucket: reservation.bucket, status: reservation.status, replayed: reservation.replayed });
 });
@@ -627,7 +639,8 @@ router.get('/v1/console/usage-history', consoleOwner, async (_req,res) => {
   const totals=await pool.query(
     "SELECT service_id, COUNT(*)::int AS requests, COUNT(*) FILTER (WHERE status='succeeded')::int AS succeeded, COUNT(*) FILTER (WHERE status='refunded')::int AS refunded, COUNT(*) FILTER (WHERE status='reserved')::int AS reserved, COUNT(DISTINCT user_id)::int AS accounts FROM usage_events WHERE created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' - INTERVAL '29 days' GROUP BY service_id ORDER BY requests DESC"
   );
-  res.json({scope:'registered_usage_events',days:30,timezone:'UTC',daily:data.rows,services:totals.rows});
+  const products=await pool.query("SELECT product, COUNT(*)::int AS requests, COUNT(*) FILTER (WHERE status='succeeded')::int AS succeeded, COUNT(*) FILTER (WHERE status='refunded')::int AS refunded FROM usage_events WHERE created_at>=NOW()-INTERVAL '30 days' GROUP BY product ORDER BY requests DESC");
+  res.json({scope:'registered_usage_events',days:30,timezone:'UTC',daily:data.rows,services:totals.rows,products:products.rows});
 });
 
 

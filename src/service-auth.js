@@ -16,7 +16,7 @@ export function requireService(req, res, next) {
 
 export function requirePaymentWebhook(req, res, next) {
   const supplied = req.get('x-payment-webhook-secret');
-  if (!config.PAYMENT_WEBHOOK_SECRET || !supplied || !timingSafeEqualText(supplied, config.PAYMENT_WEBHOOK_SECRET)) {
+  if (config.PAYMENT_WEBHOOK_SECRET.length < 32 || !supplied || !timingSafeEqualText(supplied, config.PAYMENT_WEBHOOK_SECRET)) {
     return res.status(401).json({ error: 'payment_webhook_authentication_failed' });
   }
   return next();

@@ -69,7 +69,9 @@ app.use(router);
 app.get('/', (_req, res) => res.redirect('/login'));
 app.use((req, res) => res.status(404).json({ error: 'not_found' }));
 app.use((error, _req, res, _next) => {
-  console.error('Unhandled request error:', error);
+  if(error.type==='entity.too.large')return res.status(413).json({error:'payload_too_large'});
+  if(error.type==='entity.parse.failed')return res.status(400).json({error:'invalid_json'});
+  console.error('Unhandled request error:', error.name, error.code);
   res.status(500).json({ error: 'internal_server_error' });
 });
 
@@ -77,6 +79,10 @@ const server = app.listen(config.PORT, () => {
   console.log(`Ecosystem Auth listening on ${config.PORT} (${config.NODE_ENV})`);
 });
 
+server.headersTimeout=15000;
+server.requestTimeout=30000;
+server.maxHeadersCount=80;
+server.keepAliveTimeout=5000;
 void verifyEmailProvider()
   .then(result => console.info('Email provider verification:', result))
   .catch(error => console.error('Email provider verification failed:', {
