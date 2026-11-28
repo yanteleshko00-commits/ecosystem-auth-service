@@ -62,3 +62,7 @@ input:focus{border-color:var(--nx-accent);box-shadow:0 0 0 3px rgba(92,72,214,.1
   .tabs{margin-bottom:14px}
   .nx-auth-footer{margin-top:14px;padding-top:12px}
 }
+
+/* Desktop: keep long registration forms reachable on short laptop windows. */
+@media screen and (min-width:1000px){body{align-items:safe center;min-height:100vh;min-height:100dvh}.shell{min-width:0}.panel{width:100%;overflow-wrap:anywhere}.verify-modal{overflow-y:auto;align-items:safe center}.verify-modal-card{min-width:0;max-height:calc(100vh - 36px);max-height:calc(100dvh - 36px);overflow-y:auto}.email-row{min-width:0}.email-row input{min-width:0}.verify-email-button{white-space:normal}}
+@media screen and (min-width:1000px) and (max-height:760px){body{align-items:start;padding-block:20px}.shell{margin-block:auto}.panel{padding:24px 30px}.verify-modal-card{padding:24px}}
